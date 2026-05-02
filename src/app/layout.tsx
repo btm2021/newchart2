@@ -1,4 +1,5 @@
 import { Outfit } from 'next/font/google';
+import type { Metadata } from "next";
 import './globals.css';
 import "flatpickr/dist/flatpickr.css";
 import { SidebarProvider } from '@/context/SidebarContext';
@@ -7,6 +8,14 @@ import { ThemeProvider } from '@/context/ThemeContext';
 const outfit = Outfit({
   subsets: ["latin"],
 });
+
+export const metadata: Metadata = {
+  title: {
+    default: "Mint",
+    template: "%s | Mint",
+  },
+  description: "Mint trading dashboard",
+};
 
 export default function RootLayout({
   children,

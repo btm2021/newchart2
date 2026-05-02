@@ -4,6 +4,7 @@ import { useSidebar } from "@/context/SidebarContext";
 import AppHeader from "@/layout/AppHeader";
 import AppSidebar from "@/layout/AppSidebar";
 import Backdrop from "@/layout/Backdrop";
+import { usePathname } from "next/navigation";
 import React from "react";
 
 export default function AdminLayout({
@@ -12,6 +13,8 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const { isExpanded, isHovered, isMobileOpen } = useSidebar();
+  const pathname = usePathname();
+  const isChartPage = pathname === "/chart";
 
   // Dynamic class for main content margin based on sidebar state
   const mainContentMargin = isMobileOpen
@@ -32,7 +35,15 @@ export default function AdminLayout({
         {/* Header */}
         <AppHeader />
         {/* Page Content */}
-        <div className="p-4 mx-auto max-w-(--breakpoint-2xl) md:p-6">{children}</div>
+        <div
+          className={
+            isChartPage
+              ? "h-[calc(100dvh-73px)] overflow-hidden p-0"
+              : "p-4 mx-auto max-w-(--breakpoint-2xl) md:p-6"
+          }
+        >
+          {children}
+        </div>
       </div>
     </div>
   );

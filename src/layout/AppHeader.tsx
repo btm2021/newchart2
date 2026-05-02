@@ -5,10 +5,15 @@ import UserDropdown from "@/components/header/UserDropdown";
 import { useSidebar } from "@/context/SidebarContext";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import React, { useState ,useEffect,useRef} from "react";
 
 const AppHeader: React.FC = () => {
   const [isApplicationMenuOpen, setApplicationMenuOpen] = useState(false);
+  const [headerSearch, setHeaderSearch] = useState("");
+  const [monitorSearch, setMonitorSearch] = useState("");
+  const pathname = usePathname();
+  const isMonitorPage = pathname === "/monitor";
 
   const { isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
 
@@ -143,7 +148,20 @@ const AppHeader: React.FC = () => {
                 <input
                   ref={inputRef}
                   type="text"
-                  placeholder="Search or type command..."
+                  value={isMonitorPage ? monitorSearch : headerSearch}
+                  onChange={(event) => {
+                    if (!isMonitorPage) {
+                      setHeaderSearch(event.target.value);
+                      return;
+                    }
+                    setMonitorSearch(event.target.value);
+                    window.dispatchEvent(
+                      new CustomEvent("mint-monitor-search", {
+                        detail: event.target.value,
+                      }),
+                    );
+                  }}
+                  placeholder={isMonitorPage ? "Search symbol..." : "Search or type command..."}
                   className="dark:bg-dark-900 h-11 w-full rounded-lg border border-gray-200 bg-transparent py-2.5 pl-12 pr-14 text-sm text-gray-800 shadow-theme-xs placeholder:text-gray-400 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-800 dark:bg-gray-900 dark:bg-white/[0.03] dark:text-white/90 dark:placeholder:text-white/30 dark:focus:border-brand-800 xl:w-[430px]"
                 />
 

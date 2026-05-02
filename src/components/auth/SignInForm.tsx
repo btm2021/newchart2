@@ -4,12 +4,49 @@ import Input from "@/components/form/input/InputField";
 import Label from "@/components/form/Label";
 import Button from "@/components/ui/button/Button";
 import { ChevronLeftIcon, EyeCloseIcon, EyeIcon } from "@/icons";
+import { signInWithBrowserSession } from "@/lib/auth/browser-auth";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 
 export default function SignInForm() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
-  const [isChecked, setIsChecked] = useState(false);
+  const [isChecked, setIsChecked] = useState(true);
+  const [username, setUsername] = useState("bao");
+  const [password, setPassword] = useState("123");
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  function getRedirectPath() {
+    const params = new URLSearchParams(window.location.search);
+    const nextPath = params.get("next");
+    return nextPath?.startsWith("/") && !nextPath.startsWith("//")
+      ? nextPath
+      : "/chart";
+  }
+
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setIsLoading(true);
+
+    void (async () => {
+      try {
+        await signInWithBrowserSession(username, password);
+        router.replace(getRedirectPath());
+        router.refresh();
+      } catch (authError) {
+        setError(
+          authError instanceof Error
+            ? authError.message
+            : "Could not sign in. Please try again."
+        );
+        setIsLoading(false);
+      }
+    })();
+  }
+
   return (
     <div className="flex flex-col flex-1 lg:w-1/2 w-full">
       <div className="w-full max-w-md sm:pt-10 mx-auto mb-5">
@@ -25,15 +62,18 @@ export default function SignInForm() {
         <div>
           <div className="mb-5 sm:mb-8">
             <h1 className="mb-2 font-semibold text-gray-800 text-title-sm dark:text-white/90 sm:text-title-md">
-              Sign In
+              Login
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Enter your email and password to sign in!
+              Enter your username and password to access the dashboard.
             </p>
           </div>
           <div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-5">
-              <button className="inline-flex items-center justify-center gap-3 py-3 text-sm font-normal text-gray-700 transition-colors bg-gray-100 rounded-lg px-7 hover:bg-gray-200 hover:text-gray-800 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center gap-3 py-3 text-sm font-normal text-gray-700 transition-colors bg-gray-100 rounded-lg px-7 hover:bg-gray-200 hover:text-gray-800 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10"
+              >
                 <svg
                   width="20"
                   height="20"
@@ -60,7 +100,10 @@ export default function SignInForm() {
                 </svg>
                 Sign in with Google
               </button>
-              <button className="inline-flex items-center justify-center gap-3 py-3 text-sm font-normal text-gray-700 transition-colors bg-gray-100 rounded-lg px-7 hover:bg-gray-200 hover:text-gray-800 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center gap-3 py-3 text-sm font-normal text-gray-700 transition-colors bg-gray-100 rounded-lg px-7 hover:bg-gray-200 hover:text-gray-800 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10"
+              >
                 <svg
                   width="21"
                   className="fill-current"
@@ -84,13 +127,19 @@ export default function SignInForm() {
                 </span>
               </div>
             </div>
-            <form>
+            <form onSubmit={handleSubmit}>
               <div className="space-y-6">
                 <div>
                   <Label>
-                    Email <span className="text-error-500">*</span>{" "}
+                    Username <span className="text-error-500">*</span>{" "}
                   </Label>
-                  <Input placeholder="info@gmail.com" type="email" />
+                  <Input
+                    placeholder="bao"
+                    type="text"
+                    defaultValue={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    disabled={isLoading}
+                  />
                 </div>
                 <div>
                   <Label>
@@ -100,6 +149,9 @@ export default function SignInForm() {
                     <Input
                       type={showPassword ? "text" : "password"}
                       placeholder="Enter your password"
+                      defaultValue={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      disabled={isLoading}
                     />
                     <span
                       onClick={() => setShowPassword(!showPassword)}
@@ -117,7 +169,7 @@ export default function SignInForm() {
                   <div className="flex items-center gap-3">
                     <Checkbox checked={isChecked} onChange={setIsChecked} />
                     <span className="block font-normal text-gray-700 text-theme-sm dark:text-gray-400">
-                      Keep me logged in
+                      Keep me logged in on this browser
                     </span>
                   </div>
                   <Link
@@ -127,9 +179,14 @@ export default function SignInForm() {
                     Forgot password?
                   </Link>
                 </div>
+                {error && (
+                  <p className="rounded-lg border border-error-500/20 bg-error-500/10 px-4 py-3 text-sm text-error-500">
+                    {error}
+                  </p>
+                )}
                 <div>
-                  <Button className="w-full" size="sm">
-                    Sign in
+                  <Button className="w-full" size="sm" disabled={isLoading}>
+                    {isLoading ? "Signing in..." : "Login"}
                   </Button>
                 </div>
               </div>
@@ -137,12 +194,12 @@ export default function SignInForm() {
 
             <div className="mt-5">
               <p className="text-sm font-normal text-center text-gray-700 dark:text-gray-400 sm:text-start">
-                Don&apos;t have an account? {""}
+                Use the seeded browser login: {""}
                 <Link
-                  href="/signup"
+                  href="/login"
                   className="text-brand-500 hover:text-brand-600 dark:text-brand-400"
                 >
-                  Sign Up
+                  bao / 123
                 </Link>
               </p>
             </div>

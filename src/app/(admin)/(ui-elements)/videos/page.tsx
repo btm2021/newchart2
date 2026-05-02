@@ -4,9 +4,9 @@ import { Metadata } from "next";
 import React from "react";
 
 export const metadata: Metadata = {
-  title: "Next.js Videos | TailAdmin - Next.js Dashboard Template",
+  title: "Next.js Videos | Mint",
   description:
-    "This is Next.js Videos page for TailAdmin - Next.js Tailwind CSS Admin Dashboard Template",
+    "This is Next.js Videos page for Mint",
 };
 
 export default function VideoPage() {

@@ -261,6 +261,323 @@
   scrollbar-width: none; /* Firefox */
 }
 
+.chart-page {
+  --app-bg: #131722;
+  --text: #d1d4dc;
+  --muted: #868d9a;
+  --line: #2a3241;
+  --accent: #2962ff;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  position: relative;
+  width: 100%;
+  min-width: 320px;
+  height: 100%;
+  min-height: 100%;
+  background: var(--app-bg);
+  color: var(--text);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.chart-frame {
+  position: absolute;
+  inset:
+    max(0px, var(--safe-top))
+    max(0px, var(--safe-right))
+    max(0px, var(--safe-bottom))
+    max(0px, var(--safe-left));
+}
+
+.replay-frame {
+  z-index: 3;
+}
+
+.replay-selection {
+  position: fixed;
+  inset: 0;
+  z-index: 11;
+  display: none;
+  pointer-events: none;
+}
+
+.replay-selection[data-visible="true"] {
+  display: block;
+}
+
+.replay-selection__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 10, 17, 0.18);
+  pointer-events: none;
+}
+
+.replay-selection__shade {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(6, 10, 17, 0.56);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+.replay-selection__line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: #2962ff;
+  pointer-events: auto;
+  cursor: none;
+  touch-action: none;
+  will-change: left;
+}
+
+.replay-selection__cursor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 12;
+  display: none;
+  width: 34px;
+  height: 34px;
+  transform: translate(-50%, -150%) rotate(-90deg);
+  align-items: center;
+  justify-content: center;
+  color: #000000;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  -webkit-text-stroke: 0.5px #ffffff;
+  text-shadow: 0 0 0.5px rgba(255, 255, 255, 0.8);
+}
+
+.replay-selection__cursor[data-visible="true"] {
+  display: flex;
+}
+
+.replay-selection__stamp {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 12;
+  transform: translateX(-10%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+  max-width: 320px;
+  padding: 5px 8px 5px 10px;
+  border-radius: 5px;
+  background: #2962ff;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.replay-selection__stamp-label {
+  display: inline-block;
+}
+
+.replay-selection__stamp-button {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chart-loading,
+.chart-error {
+  position: absolute;
+  inset:
+    max(0px, var(--safe-top))
+    max(0px, var(--safe-right))
+    max(0px, var(--safe-bottom))
+    max(0px, var(--safe-left));
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(19, 23, 34, 0.92);
+}
+
+.chart-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(209, 212, 220, 0.18);
+  border-top-color: var(--accent);
+  border-radius: 999px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.chart-page .muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.chart-page code {
+  padding: 1px 5px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.replay-controls {
+  position: fixed;
+  left: 50%;
+  bottom: calc(max(0px, var(--safe-bottom)) + 14px);
+  z-index: 12;
+  transform: translateX(-50%);
+  display: none;
+}
+
+.replay-controls[data-visible="true"] {
+  display: block;
+}
+
+.replay-panel {
+  min-width: 280px;
+  max-width: min(92vw, 320px);
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(19, 23, 34, 0.96);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(14px);
+}
+
+.replay-panel__header,
+.replay-panel__actions,
+.replay-panel__speed-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.replay-panel__header {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.replay-panel__header strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.replay-panel__header button,
+.replay-panel__actions button,
+.replay-panel__speed-group button {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: #1b2230;
+  color: #d1d4dc;
+  cursor: pointer;
+}
+
+.replay-panel__header button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 13px;
+}
+
+.replay-panel__status {
+  margin-bottom: 8px;
+  color: #b2b5be;
+  font-size: 12px;
+}
+
+.replay-panel__section {
+  margin-bottom: 8px;
+}
+
+.replay-panel__section label,
+.replay-panel__progress-text {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: #b2b5be;
+}
+
+.replay-panel input[type="range"] {
+  width: 100%;
+  margin: 0;
+}
+
+.replay-panel__speed-group {
+  flex-wrap: wrap;
+}
+
+.replay-panel__speed-group button,
+.replay-panel__actions button {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.replay-panel__speed-group .is-active,
+.replay-panel__actions .is-accent {
+  border-color: rgba(41, 98, 255, 0.42);
+  background: rgba(41, 98, 255, 0.18);
+  color: #dbe6ff;
+}
+
+.replay-panel__actions {
+  justify-content: space-between;
+}
+
+.replay-panel__actions .is-danger {
+  border-color: rgba(242, 54, 69, 0.42);
+  color: #ffb6bd;
+}
+
+@media (min-width: 768px) {
+  .replay-panel {
+    max-width: min(50vw, 360px);
+  }
+}
+
+@media (max-width: 720px) {
+  .replay-controls {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    transform: none;
+  }
+
+  .replay-panel {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 @utility custom-scrollbar {
   &::-webkit-scrollbar {
     @apply size-1.5;
