@@ -275,7 +275,7 @@ function TradingViewHostInner({ symbol, interval, chartType, keepScreenAwake, on
           autosize: true,
           theme: "dark",
           preset: window.matchMedia("(max-width: 1024px)").matches ? "mobile" : undefined,
-          load_last_chart: false,
+          load_last_chart: true,
           enabled_features: [
             "header_widget",
             "left_toolbar",

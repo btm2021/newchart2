@@ -1,4 +1,3 @@
-import { openDB, type DBSchema } from "idb";
 import type { MarketType } from "@/lib/datasources/types";
 import type { Bar } from "@/lib/types/charting";
 
@@ -23,166 +22,77 @@ export type OhlcvSymbolUpdate = {
   lastError?: string;
 };
 
-interface OhlcvMonitorDb extends DBSchema {
-  ohlcv: {
-    key: string;
-    value: OhlcvMonitorRecord;
-    indexes: {
-      datasourceId: string;
-      lastUpdated: number;
-    };
-  };
-  symbolUpdates: {
-    key: string;
-    value: OhlcvSymbolUpdate;
-    indexes: {
-      datasourceId: string;
-      lastUpdated: number;
-    };
-  };
-}
-
-async function getDb() {
-  return openDB<OhlcvMonitorDb>("mint-ohlcv-monitor-db", 2, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains("ohlcv")) {
-        const store = db.createObjectStore("ohlcv", { keyPath: "id" });
-        store.createIndex("datasourceId", "datasourceId");
-        store.createIndex("lastUpdated", "lastUpdated");
-      }
-      if (!db.objectStoreNames.contains("symbolUpdates")) {
-        const store = db.createObjectStore("symbolUpdates", { keyPath: "id" });
-        store.createIndex("datasourceId", "datasourceId");
-        store.createIndex("lastUpdated", "lastUpdated");
-      }
+async function requestMonitorApi<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...init?.headers,
     },
   });
-}
 
-function normalizeUnixTimestamp(timestamp: number) {
-  return timestamp > 10_000_000_000 ? Math.floor(timestamp / 1000) : timestamp;
-}
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error || "Monitor database request failed.");
+  }
 
-function normalizeRecord(record: OhlcvMonitorRecord): OhlcvMonitorRecord {
-  return {
-    ...record,
-    lastUpdated: normalizeUnixTimestamp(record.lastUpdated),
-  };
-}
-
-function normalizeUpdate(update: OhlcvSymbolUpdate): OhlcvSymbolUpdate {
-  return {
-    ...update,
-    lastUpdated: normalizeUnixTimestamp(update.lastUpdated),
-  };
+  return response.json() as Promise<T>;
 }
 
 export async function readRecordsByDatasource(datasourceId: string) {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const db = await getDb();
-    const records = await db.getAllFromIndex("ohlcv", "datasourceId", datasourceId);
-    return records.map(normalizeRecord);
-  } catch {
-    return [];
-  }
+  const params = new URLSearchParams({
+    type: "records",
+    datasourceId,
+  });
+  const payload = await requestMonitorApi<{ records: OhlcvMonitorRecord[] }>(`/api/monitor/ohlcv?${params.toString()}`);
+  return payload.records;
 }
 
 export async function readSymbolUpdatesByDatasource(datasourceId: string, resolution: string) {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const db = await getDb();
-    const updates = await db.getAllFromIndex("symbolUpdates", "datasourceId", datasourceId);
-    return updates
-      .map(normalizeUpdate)
-      .filter((update) => update.resolution === resolution);
-  } catch {
-    return [];
-  }
+  const params = new URLSearchParams({
+    type: "updates",
+    datasourceId,
+    resolution,
+  });
+  const payload = await requestMonitorApi<{ updates: OhlcvSymbolUpdate[] }>(`/api/monitor/ohlcv?${params.toString()}`);
+  return payload.updates;
 }
 
 export async function readAllSymbolUpdates() {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const db = await getDb();
-    const updates = await db.getAll("symbolUpdates");
-    return updates
-      .map(normalizeUpdate)
-      .sort((a, b) => b.lastUpdated - a.lastUpdated);
-  } catch {
-    return [];
-  }
+  const payload = await requestMonitorApi<{ updates: OhlcvSymbolUpdate[] }>("/api/monitor/ohlcv?type=updates");
+  return payload.updates;
 }
 
 export async function writeSymbolUpdatesFromRecords(records: OhlcvMonitorRecord[]) {
-  if (typeof window === "undefined" || records.length === 0) return;
-
-  const db = await getDb();
-  const tx = db.transaction("symbolUpdates", "readwrite");
-  await Promise.all([
-    ...records.map((record) => {
-      const normalizedRecord = normalizeRecord(record);
-      return tx.objectStore("symbolUpdates").put({
-        id: normalizedRecord.id,
-        datasourceId: normalizedRecord.datasourceId,
-        symbol: normalizedRecord.symbol,
-        resolution: normalizedRecord.id.split(":").at(-1) ?? "",
-        lastUpdated: normalizedRecord.lastUpdated,
-        lastError: normalizedRecord.lastError,
-      });
+  if (records.length === 0) return;
+  await requestMonitorApi<{ ok: true }>("/api/monitor/ohlcv", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "seedUpdates",
+      records,
     }),
-    tx.done,
-  ]);
+  });
 }
 
 export async function deleteOhlcvMonitorData(ids: string[]) {
-  if (typeof window === "undefined" || ids.length === 0) return;
-
-  const db = await getDb();
-  const tx = db.transaction(["ohlcv", "symbolUpdates"], "readwrite");
-  await Promise.all([
-    ...ids.flatMap((id) => [
-      tx.objectStore("ohlcv").delete(id),
-      tx.objectStore("symbolUpdates").delete(id),
-    ]),
-    tx.done,
-  ]);
+  if (ids.length === 0) return;
+  await requestMonitorApi<{ ok: true }>("/api/monitor/ohlcv", {
+    method: "DELETE",
+    body: JSON.stringify({ ids }),
+  });
 }
 
 export async function writeOhlcvRecord(record: OhlcvMonitorRecord) {
-  if (typeof window === "undefined") return;
-
-  const db = await getDb();
-  const normalizedRecord = normalizeRecord(record);
-  const tx = db.transaction(["ohlcv", "symbolUpdates"], "readwrite");
-  await Promise.all([
-    tx.objectStore("ohlcv").put(normalizedRecord),
-    tx.objectStore("symbolUpdates").put({
-      id: normalizedRecord.id,
-      datasourceId: normalizedRecord.datasourceId,
-      symbol: normalizedRecord.symbol,
-      resolution: normalizedRecord.id.split(":").at(-1) ?? "",
-      lastUpdated: normalizedRecord.lastUpdated,
-      lastError: normalizedRecord.lastError,
+  await requestMonitorApi<{ ok: true }>("/api/monitor/ohlcv", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "writeRecord",
+      record,
     }),
-    tx.done,
-  ]);
+  });
 }
 
 export async function readRecentOhlcvRecords(limit = 24) {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const db = await getDb();
-    const records = await db.getAllFromIndex("ohlcv", "lastUpdated");
-    return records
-      .map(normalizeRecord)
-      .sort((a, b) => b.lastUpdated - a.lastUpdated)
-      .slice(0, limit);
-  } catch {
-    return [];
-  }
+  const updates = await readAllSymbolUpdates();
+  return updates.slice(0, limit);
 }

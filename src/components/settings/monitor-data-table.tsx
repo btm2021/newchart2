@@ -29,7 +29,8 @@ function formatLastUpdated(timestamp: number) {
 export function MonitorDataTable() {
   const [rows, setRows] = useState<OhlcvSymbolUpdate[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [state, setState] = useState<"loading" | "ready" | "deleting">("loading");
+  const [state, setState] = useState<"loading" | "ready" | "deleting" | "error">("loading");
+  const [message, setMessage] = useState("");
 
   const selectedCount = selectedIds.size;
   const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedIds.has(row.id));
@@ -46,10 +47,17 @@ export function MonitorDataTable() {
 
   async function loadRows() {
     setState("loading");
-    const updates = await readAllSymbolUpdates();
-    setRows(updates);
-    setSelectedIds((current) => new Set([...current].filter((id) => updates.some((row) => row.id === id))));
-    setState("ready");
+    setMessage("");
+    try {
+      const updates = await readAllSymbolUpdates();
+      setRows(updates);
+      setSelectedIds((current) => new Set([...current].filter((id) => updates.some((row) => row.id === id))));
+      setState("ready");
+    } catch (error) {
+      setRows([]);
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "Could not load monitor data.");
+    }
   }
 
   useEffect(() => {
@@ -59,9 +67,15 @@ export function MonitorDataTable() {
   async function handleDelete(ids: string[]) {
     if (ids.length === 0) return;
     setState("deleting");
-    await deleteOhlcvMonitorData(ids);
-    setSelectedIds(new Set());
-    await loadRows();
+    setMessage("");
+    try {
+      await deleteOhlcvMonitorData(ids);
+      setSelectedIds(new Set());
+      await loadRows();
+    } catch (error) {
+      setState("error");
+      setMessage(error instanceof Error ? error.message : "Could not delete monitor data.");
+    }
   }
 
   return (
@@ -70,7 +84,7 @@ export function MonitorDataTable() {
         <div>
           <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">Monitor Data</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {rows.length.toLocaleString()} cached symbols{groupedCount ? ` / ${groupedCount}` : ""}
+            {message || `${rows.length.toLocaleString()} cached symbols${groupedCount ? ` / ${groupedCount}` : ""}`}
           </p>
         </div>
 
