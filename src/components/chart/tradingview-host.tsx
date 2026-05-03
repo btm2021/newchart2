@@ -116,6 +116,9 @@ function normalizeTitleSymbol(symbol: string): string {
   if (upper.startsWith("BINANCE_SPOT:")) {
     return upper.slice("BINANCE_SPOT:".length);
   }
+  if (upper.startsWith("OKX_PERP:")) {
+    return upper.slice("OKX_PERP:".length);
+  }
   if (upper.startsWith("OANDA:")) {
     return upper.slice("OANDA:".length);
   }

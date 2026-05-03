@@ -1,5 +1,6 @@
-import { BinanceAdapter } from "@/lib/datasources/binance-adapter";
+import { BinanceFuturesAdapter, BinanceSpotAdapter } from "@/lib/datasources/binance-adapter";
 import { OandaAdapter } from "@/lib/datasources/oanda-adapter";
+import { OkxPerpetualAdapter } from "@/lib/datasources/perpetual-adapters";
 import type { DatasourceAdapter, MarketType, SymbolDescriptor } from "@/lib/datasources/types";
 import type { ResolutionString } from "@/lib/types/charting";
 
@@ -77,20 +78,9 @@ let singletonRegistry: DatasourceRegistry | null = null;
 export function getDatasourceRegistry(): DatasourceRegistry {
   if (!singletonRegistry) {
     singletonRegistry = new DatasourceRegistry();
-    singletonRegistry.register(
-      new BinanceAdapter("BINANCE_SPOT", "Binance Spot", "spot", {
-        baseUrl: "https://api.binance.com/api/v3",
-        wsBaseUrl: "wss://stream.binance.com:9443/ws",
-        blacklistPatterns: [/BULL/i, /BEAR/i, /UP/i, /DOWN/i],
-      }),
-    );
-    singletonRegistry.register(
-      new BinanceAdapter("BINANCE_FUTURES", "Binance Futures", "futures", {
-        baseUrl: "https://fapi.binance.com/fapi/v1",
-        wsBaseUrl: "wss://fstream.binance.com/ws",
-        blacklistPatterns: [/BULL/i, /BEAR/i, /UP/i, /DOWN/i, /_/, /DEFI/i],
-      }),
-    );
+    singletonRegistry.register(new BinanceSpotAdapter());
+    singletonRegistry.register(new BinanceFuturesAdapter());
+    singletonRegistry.register(new OkxPerpetualAdapter());
     if (process.env.NEXT_PUBLIC_OANDA_ACCOUNT_ID && process.env.NEXT_PUBLIC_OANDA_TOKEN) {
       singletonRegistry.register(
         new OandaAdapter("OANDA", "OANDA", {

@@ -11,7 +11,7 @@ const STORAGE_KEY = "nexa-workspace-v1";
 
 export const defaultWorkspaceState: UserWorkspaceState = {
   activeDatasourceId: "BINANCE_FUTURES",
-  activeSymbol: "BINANCE_FUTURES:BTCUSDT",
+  activeSymbol: "BINANCE_FUTURES:BTC/USDT",
   activeInterval: "15",
   chartType: "candles",
   theme: "dark",

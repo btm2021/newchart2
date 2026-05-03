@@ -10,6 +10,7 @@ import {
   HorizontaLDots,
   ListIcon,
   PieChartIcon,
+  TableIcon,
   UserCircleIcon,
 } from "../icons/index";
 
@@ -35,6 +36,11 @@ const navItems: NavItem[] = [
     icon: <ListIcon />,
     name: "Monitor",
     path: "/monitor",
+  },
+  {
+    icon: <TableIcon />,
+    name: "Supabase DB",
+    path: "/supabase-db",
   },
   {
     icon: <UserCircleIcon />,

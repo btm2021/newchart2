@@ -7,7 +7,7 @@ import { TradingViewHost } from "@/components/chart/tradingview-host";
 import { useNativePwa } from "@/lib/pwa/use-native-pwa";
 import { defaultWorkspaceState, loadWorkspaceState, saveWorkspaceState, type UserWorkspaceState } from "@/lib/storage/workspace-state";
 
-const KNOWN_DATASOURCE_IDS = new Set(["BINANCE_SPOT", "BINANCE_FUTURES", "OANDA"]);
+const KNOWN_DATASOURCE_IDS = new Set(["BINANCE_SPOT", "BINANCE_FUTURES", "OKX_PERP", "OANDA"]);
 
 function getDatasourceIdFromSymbol(symbol: string) {
   const datasourceId = symbol.trim().toUpperCase().split(":")[0];

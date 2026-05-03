@@ -10,9 +10,7 @@ import {
 } from "@/lib/monitor/monitor-settings";
 import {
   readRecordsByDatasource,
-  readSymbolUpdatesByDatasource,
-  writeOhlcvRecord,
-  writeSymbolUpdatesFromRecords,
+  writeOhlcvRecords,
   type OhlcvMonitorRecord,
 } from "@/lib/monitor/ohlcv-monitor-store";
 import type { Bar, ResolutionString } from "@/lib/types/charting";
@@ -38,6 +36,7 @@ const OUTDATED_AFTER_SECONDS = 15 * 60;
 const FAVORITES_SOURCE_ID = "FAVORITES";
 const FAVORITES_STORAGE_KEY = "mint-monitor-favorites-v1";
 const VIRTUAL_CARD_GAP = 16;
+const MONITOR_CARD_HEIGHT = 220;
 
 function nowUnix() {
   return Math.floor(Date.now() / 1000);
@@ -103,6 +102,21 @@ function toStatus(adapter: DatasourceAdapter): ExchangeStatus {
   };
 }
 
+async function settleWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+) {
+  const results: PromiseSettledResult<R>[] = [];
+
+  for (let index = 0; index < items.length; index += concurrency) {
+    const chunk = items.slice(index, index + concurrency);
+    results.push(...await Promise.allSettled(chunk.map(worker)));
+  }
+
+  return results;
+}
+
 export function OhlcvMonitor() {
   const isRunning = true;
   const [settings, setSettings] = useState<MonitorSettings>(defaultMonitorSettings);
@@ -151,7 +165,6 @@ export function OhlcvMonitor() {
         lastUpdated: nowUnix(),
         bars: response.bars,
       };
-      await writeOhlcvRecord(record);
       return record;
     },
     [settings.resolution],
@@ -181,19 +194,18 @@ export function OhlcvMonitor() {
 
         const cached = await readRecordsByDatasource(adapter.id);
         const currentResolutionRecords = cached.filter((record) => record.id.endsWith(`:${settings.resolution}`));
+        const localRecordsById = new Map(currentResolutionRecords.map((record) => [record.id, record]));
         setRecordsById((current) => ({
           ...current,
           ...Object.fromEntries(currentResolutionRecords.map((record) => [record.id, record])),
         }));
-        await writeSymbolUpdatesFromRecords(currentResolutionRecords);
 
         while (!shouldStop()) {
-          const symbolUpdates = await readSymbolUpdatesByDatasource(adapter.id, settings.resolution);
-          const updateMap = new Map(symbolUpdates.map((update) => [update.id, update]));
           const currentTime = nowUnix();
           const dueSymbols = symbols.filter((symbol) => {
-            const symbolUpdate = updateMap.get(`${symbol.id}:${settings.resolution}`);
-            return !symbolUpdate || currentTime - symbolUpdate.lastUpdated > OUTDATED_AFTER_SECONDS;
+            const recordId = `${symbol.id}:${settings.resolution}`;
+            const localRecord = localRecordsById.get(recordId);
+            return !localRecord || currentTime - localRecord.lastUpdated > OUTDATED_AFTER_SECONDS;
           });
 
           updateStatus(adapter.id, {
@@ -215,7 +227,7 @@ export function OhlcvMonitor() {
               lastMessage: `Batch ${Math.floor(index / settings.batchSize) + 1}: ${batch[0]?.symbol ?? ""}`,
             });
 
-            const results = await Promise.allSettled(batch.map((symbol) => fetchSymbol(adapter, symbol)));
+            const results = await settleWithConcurrency(batch, 2, (symbol) => fetchSymbol(adapter, symbol));
             const fulfilled = results
               .filter((result): result is PromiseFulfilledResult<OhlcvMonitorRecord> => result.status === "fulfilled")
               .map((result) => result.value)
@@ -223,6 +235,10 @@ export function OhlcvMonitor() {
             const rejectedCount = results.length - fulfilled.length;
 
             if (fulfilled.length > 0) {
+              await writeOhlcvRecords(fulfilled);
+              fulfilled.forEach((record) => {
+                localRecordsById.set(record.id, record);
+              });
               setRecordsById((current) => ({
                 ...current,
                 ...Object.fromEntries(fulfilled.map((record) => [record.id, record])),
@@ -517,9 +533,8 @@ function SymbolCardGrid({
         .includes(normalizedQuery),
     );
   }, [normalizedQuery, symbols]);
-  const columns = width === 0 ? 3 : width >= 720 ? 3 : width >= 480 ? 2 : 1;
-  const cardSize = width > 0 ? (width - (columns - 1) * VIRTUAL_CARD_GAP) / columns : 220;
-  const rowHeight = cardSize + VIRTUAL_CARD_GAP;
+  const columns = width === 0 ? 4 : width >= 1180 ? 4 : width >= 860 ? 3 : width >= 560 ? 2 : 1;
+  const rowHeight = MONITOR_CARD_HEIGHT + VIRTUAL_CARD_GAP;
   const totalRows = Math.ceil(filteredSymbols.length / columns);
   const startRow = Math.max(0, Math.floor(scrollTop / rowHeight) - 2);
   const visibleRows = Math.ceil((height || 680) / rowHeight) + 4;
@@ -568,15 +583,14 @@ function SymbolCardGrid({
               right: 0,
             }}
           >
-            {visibleSymbols.map((symbol) => (
+            {visibleSymbols.map((symbol, index) => (
               <SymbolChartCard
-                key={symbol.id}
+                key={`${symbol.id}:${startRow * columns + index}`}
                 symbol={symbol}
                 record={recordsById[`${symbol.id}:${resolution}`]}
                 resolution={resolution}
                 favorite={favoriteIds.has(symbol.id)}
                 onToggleFavorite={() => onToggleFavorite(symbol.id)}
-                cardSize={cardSize}
               />
             ))}
           </div>
@@ -592,46 +606,50 @@ function SymbolChartCard({
   resolution,
   favorite,
   onToggleFavorite,
-  cardSize,
 }: {
   symbol: SymbolDescriptor;
   record?: OhlcvMonitorRecord;
   resolution: ResolutionString;
   favorite: boolean;
   onToggleFavorite: () => void;
-  cardSize: number;
 }) {
   const change = record ? getChangePercent(record.bars) : 0;
   const isUp = change >= 0;
 
   return (
     <div
-      className="relative rounded-lg border border-gray-200 bg-white p-3 transition hover:border-brand-300 hover:shadow-theme-sm dark:border-gray-800 dark:bg-gray-900 dark:hover:border-brand-500"
-      style={{ height: cardSize }}
+      className="relative h-[220px] overflow-hidden rounded-lg border border-gray-200 bg-white p-3 shadow-theme-xs transition hover:border-brand-300 hover:shadow-theme-sm dark:border-gray-800 dark:bg-gray-900 dark:hover:border-brand-500"
     >
       <Link
         href={`/chart?source=${encodeURIComponent(symbol.datasourceId)}&symbol=${encodeURIComponent(symbol.symbol)}&interval=${encodeURIComponent(resolution)}`}
-        className="block h-full"
+        className="flex h-full flex-col"
       >
-        <div className="flex items-start justify-between gap-3 pr-8">
-          <div className="min-w-0">
-            <h3 className="truncate font-semibold text-gray-900 dark:text-white">{symbol.symbol}</h3>
-            <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{symbol.displayName}</p>
+        <div className="flex h-8 items-start justify-between gap-3 pr-8">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-sm font-semibold leading-5 text-gray-900 dark:text-white">
+              {symbol.symbol}-{resolution}
+            </h3>
           </div>
-          <div className="text-right">
-            <p className={`text-xs font-medium ${isUp ? "text-success-500" : "text-error-500"}`}>
+          <div className="shrink-0 text-right">
+            <p className={`text-sm font-semibold leading-5 ${isUp ? "text-success-500" : "text-error-500"}`}>
               {record ? `${change.toFixed(2)}%` : "Waiting"}
             </p>
           </div>
         </div>
-        <div className="mt-4 h-[62%] min-h-20">
-          {record ? <MiniLineChart bars={record.bars} height={64} /> : <StaticSkeletonChart />}
+
+        <div className="mt-2 min-h-0 flex-1 rounded-md bg-gray-50 px-2 py-2 dark:bg-white/[0.03]">
+          {record ? <MiniLineChart bars={record.bars} height={132} /> : <StaticSkeletonChart />}
+        </div>
+
+        <div className="mt-2 flex h-5 items-center justify-between gap-3 text-xs text-gray-400">
+          <span className="truncate">{symbol.exchange}</span>
+          <span>{record ? `${record.bars.length.toLocaleString()} bars` : "Queued"}</span>
         </div>
       </Link>
       <button
         type="button"
         onClick={onToggleFavorite}
-        className={`absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-md transition ${
+        className={`absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md transition ${
           favorite
             ? "bg-warning-50 text-warning-500 dark:bg-warning-500/15"
             : "text-gray-400 hover:bg-gray-100 hover:text-warning-500 dark:hover:bg-white/[0.06]"
