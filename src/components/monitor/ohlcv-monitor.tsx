@@ -31,8 +31,10 @@ type ExchangeStatus = {
 
 const BATCH_DELAY_MS = 3_000;
 const LOOKBACK_BARS = 1500;
-const CACHE_SCAN_INTERVAL_SECONDS = 5 * 60;
+const EXPIRE_SCAN_INTERVAL_SECONDS = 15 * 60;
 const OUTDATED_AFTER_SECONDS = 15 * 60;
+const SMART_REFRESH_INTERVAL_SECONDS = 60;
+const SMART_REFRESH_DIVISOR = 30;
 const FAVORITES_SOURCE_ID = "FAVORITES";
 const FAVORITES_STORAGE_KEY = "mint-monitor-favorites-v1";
 const VIRTUAL_CARD_GAP = 16;
@@ -117,6 +119,24 @@ async function settleWithConcurrency<T, R>(
   return results;
 }
 
+function getSmartRefreshSymbols(symbols: SymbolDescriptor[], cursor: number) {
+  if (symbols.length === 0) {
+    return { symbols: [] as SymbolDescriptor[], nextCursor: 0 };
+  }
+
+  const windowSize = Math.max(1, Math.ceil(symbols.length / SMART_REFRESH_DIVISOR));
+  const selected: SymbolDescriptor[] = [];
+
+  for (let offset = 0; offset < windowSize; offset += 1) {
+    selected.push(symbols[(cursor + offset) % symbols.length]);
+  }
+
+  return {
+    symbols: selected,
+    nextCursor: (cursor + windowSize) % symbols.length,
+  };
+}
+
 export function OhlcvMonitor() {
   const isRunning = true;
   const [settings, setSettings] = useState<MonitorSettings>(defaultMonitorSettings);
@@ -128,6 +148,8 @@ export function OhlcvMonitor() {
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(() => new Set());
   const stopRef = useRef(false);
   const runTokenRef = useRef(0);
+  const rollingCursorRef = useRef(new Map<string, number>());
+  const lastExpireScanRef = useRef(new Map<string, number>());
 
   const updateStatus = useCallback((datasourceId: string, patch: Partial<ExchangeStatus>) => {
     setStatuses((current) => ({
@@ -202,29 +224,55 @@ export function OhlcvMonitor() {
 
         while (!shouldStop()) {
           const currentTime = nowUnix();
-          const dueSymbols = symbols.filter((symbol) => {
-            const recordId = `${symbol.id}:${settings.resolution}`;
-            const localRecord = localRecordsById.get(recordId);
-            return !localRecord || currentTime - localRecord.lastUpdated > OUTDATED_AFTER_SECONDS;
-          });
+          const lastExpireScan = lastExpireScanRef.current.get(adapter.id) ?? 0;
+          const shouldScanExpired =
+            lastExpireScan === 0 || currentTime - lastExpireScan >= EXPIRE_SCAN_INTERVAL_SECONDS;
+          let targetSymbols: SymbolDescriptor[] = [];
+          let expiredCount = 0;
+          let refreshMode: "expired" | "smart" = "smart";
+
+          if (shouldScanExpired) {
+            const dueSymbols = symbols.filter((symbol) => {
+              const recordId = `${symbol.id}:${settings.resolution}`;
+              const localRecord = localRecordsById.get(recordId);
+              return !localRecord || currentTime - localRecord.lastUpdated > OUTDATED_AFTER_SECONDS;
+            });
+            lastExpireScanRef.current.set(adapter.id, currentTime);
+            targetSymbols = dueSymbols;
+            expiredCount = dueSymbols.length;
+            refreshMode = dueSymbols.length > 0 ? "expired" : "smart";
+          }
+
+          if (targetSymbols.length === 0) {
+            const cursor = rollingCursorRef.current.get(adapter.id) ?? 0;
+            const smartWindow = getSmartRefreshSymbols(symbols, cursor);
+            targetSymbols = smartWindow.symbols;
+            rollingCursorRef.current.set(adapter.id, smartWindow.nextCursor);
+            refreshMode = "smart";
+          }
 
           updateStatus(adapter.id, {
-            dueSymbols: dueSymbols.length,
-            state: dueSymbols.length > 0 ? "running" : "waiting",
+            dueSymbols: targetSymbols.length,
+            state: targetSymbols.length > 0 ? "running" : "waiting",
             activeBatch: 0,
-            lastMessage: dueSymbols.length > 0 ? "Fetching due symbols" : "Completed",
+            lastMessage:
+              refreshMode === "expired"
+                ? `Fetching ${expiredCount} expired symbols`
+                : `Smart refresh ${targetSymbols.length} symbols`,
           });
 
-          if (dueSymbols.length === 0) {
-            await sleep(CACHE_SCAN_INTERVAL_SECONDS * 1000, shouldStop);
+          if (targetSymbols.length === 0) {
+            await sleep(SMART_REFRESH_INTERVAL_SECONDS * 1000, shouldStop);
             continue;
           }
 
-          for (let index = 0; index < dueSymbols.length && !shouldStop(); index += settings.batchSize) {
-            const batch = dueSymbols.slice(index, index + settings.batchSize);
+          for (let index = 0; index < targetSymbols.length && !shouldStop(); index += settings.batchSize) {
+            const batch = targetSymbols.slice(index, index + settings.batchSize);
             updateStatus(adapter.id, {
               activeBatch: Math.floor(index / settings.batchSize) + 1,
-              lastMessage: `Batch ${Math.floor(index / settings.batchSize) + 1}: ${batch[0]?.symbol ?? ""}`,
+              lastMessage: `${refreshMode === "expired" ? "Expire" : "Smart"} batch ${
+                Math.floor(index / settings.batchSize) + 1
+              }: ${batch[0]?.symbol ?? ""}`,
             });
 
             const results = await settleWithConcurrency(batch, 2, (symbol) => fetchSymbol(adapter, symbol));
@@ -251,14 +299,14 @@ export function OhlcvMonitor() {
                 ...current[adapter.id],
                 updated: (current[adapter.id]?.updated ?? 0) + fulfilled.length,
                 failed: (current[adapter.id]?.failed ?? 0) + rejectedCount,
-                dueSymbols: Math.max(dueSymbols.length - index - batch.length, 0),
+                dueSymbols: Math.max(targetSymbols.length - index - batch.length, 0),
               },
             }));
 
             await sleep(BATCH_DELAY_MS, shouldStop);
           }
 
-          await sleep(CACHE_SCAN_INTERVAL_SECONDS * 1000, shouldStop);
+          await sleep(SMART_REFRESH_INTERVAL_SECONDS * 1000, shouldStop);
         }
 
         updateStatus(adapter.id, {
@@ -320,6 +368,8 @@ export function OhlcvMonitor() {
 
     stopRef.current = false;
     setRecordsById({});
+    rollingCursorRef.current.clear();
+    lastExpireScanRef.current.clear();
     const registry = getDatasourceRegistry();
     const adapters = registry.getAdapters();
     setStatuses(Object.fromEntries(adapters.map((adapter) => [adapter.id, toStatus(adapter)])));
@@ -354,8 +404,8 @@ export function OhlcvMonitor() {
     return exchangeSymbols[selectedSourceId] ?? [];
   }, [allSymbols, exchangeSymbols, favoriteIds, selectedSourceId]);
   return (
-    <div className="h-[calc(100vh-140px)] min-h-[520px]">
-      <div className="grid h-full items-stretch gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+    <div className="h-[calc(100dvh-32px)] min-h-[520px] md:h-[calc(100dvh-48px)]">
+      <div className="grid h-full items-stretch gap-5 xl:grid-cols-[240px_minmax(0,1fr)]">
         <SourceRail
           statuses={statusList}
           selectedSourceId={selectedSourceId}
@@ -410,7 +460,7 @@ function SourceRail({
   return (
     <aside className="h-full overflow-hidden rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
       <div className="mb-2 px-2 text-xs font-medium uppercase text-gray-400">Sources</div>
-      <div className="h-[calc(100%-28px)] space-y-1 overflow-auto pr-1">
+      <div className="h-[calc(100%-28px)] space-y-1 overflow-auto pr-1 custom-scrollbar">
         <SourceButton
           active={selectedSourceId === FAVORITES_SOURCE_ID}
           label="Favorite"
@@ -563,14 +613,14 @@ function SymbolCardGrid({
           </p>
         </div>
         <span className="text-sm text-gray-500 dark:text-gray-400">
-          {status ? `Batch ${status.activeBatch || 0} / Due ${status.dueSymbols}` : "Favorite source"}
+          {status ? `Batch ${status.activeBatch || 0} / Queue ${status.dueSymbols}` : "Favorite source"}
         </span>
       </div>
 
       <div
         ref={containerRef}
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-        className="min-h-0 flex-1 overflow-auto bg-gray-50/60 p-4 dark:bg-gray-950/20"
+        className="min-h-0 flex-1 overflow-auto bg-gray-50/60 p-4 custom-scrollbar dark:bg-gray-950/20"
       >
         <div style={{ height: totalRows * rowHeight, position: "relative" }}>
           <div
