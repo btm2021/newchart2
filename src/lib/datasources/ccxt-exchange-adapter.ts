@@ -34,6 +34,12 @@ type CcxtMarket = {
     price?: number;
     amount?: number;
   };
+  limits?: {
+    price?: {
+      min?: number;
+    };
+  };
+  info?: unknown;
 };
 
 type CcxtExchange = {
@@ -266,7 +272,7 @@ export abstract class CcxtExchangeAdapter extends BaseDatasourceAdapter {
   private hydrateMaps(symbols: SymbolDescriptor[]) {
     this.symbols = symbols;
     this.symbolMap = new Map(symbols.map((symbol) => [symbol.id, symbol]));
-    this.priceScaleMap = new Map(symbols.map((symbol) => [symbol.id, 100]));
+    this.priceScaleMap = new Map(symbols.map((symbol) => [symbol.id, symbol.priceScale ?? 100]));
   }
 
   private isTradableMarket(market: CcxtMarket): boolean {
@@ -302,7 +308,62 @@ export abstract class CcxtExchangeAdapter extends BaseDatasourceAdapter {
       base: market.base?.toUpperCase() ?? "",
       quote: market.quote?.toUpperCase() ?? "",
       displayName: `${pair}${suffix}`,
+      priceScale: this.getPriceScale(market),
     };
+  }
+
+  private getPriceScale(market: CcxtMarket) {
+    const tickSize = this.extractTickSize(market) ?? market.precision?.price ?? market.limits?.price?.min;
+    if (typeof tickSize !== "number" || !Number.isFinite(tickSize) || tickSize <= 0) {
+      return 100;
+    }
+
+    if (tickSize < 1) {
+      return this.tickSizeToPriceScale(tickSize);
+    }
+
+    if (Number.isInteger(tickSize) && tickSize <= 12) {
+      return 10 ** tickSize;
+    }
+
+    return 1;
+  }
+
+  private extractTickSize(market: CcxtMarket) {
+    const info = market.info;
+    if (!info || typeof info !== "object") {
+      return null;
+    }
+
+    const filters = "filters" in info ? (info as { filters?: unknown }).filters : undefined;
+    if (Array.isArray(filters)) {
+      const priceFilter = filters.find((filter) => (
+        filter &&
+        typeof filter === "object" &&
+        "filterType" in filter &&
+        (filter as { filterType?: unknown }).filterType === "PRICE_FILTER"
+      ));
+      const tickSize = priceFilter && typeof priceFilter === "object"
+        ? Number((priceFilter as { tickSize?: unknown }).tickSize)
+        : Number.NaN;
+      if (Number.isFinite(tickSize) && tickSize > 0) {
+        return tickSize;
+      }
+    }
+
+    const directTickSize =
+      "tickSize" in info
+        ? Number((info as { tickSize?: unknown }).tickSize)
+        : "tickSz" in info
+          ? Number((info as { tickSz?: unknown }).tickSz)
+          : Number.NaN;
+    return Number.isFinite(directTickSize) && directTickSize > 0 ? directTickSize : null;
+  }
+
+  private tickSizeToPriceScale(tickSize: number) {
+    const normalized = tickSize.toFixed(12).replace(/0+$/, "");
+    const decimals = normalized.includes(".") ? normalized.split(".")[1]?.length ?? 0 : 0;
+    return Math.min(10 ** decimals, 1_000_000_000_000);
   }
 
   private normalizeOhlcv(row: unknown[]): Bar {
@@ -375,6 +436,6 @@ export abstract class CcxtExchangeAdapter extends BaseDatasourceAdapter {
   }
 
   private getCacheKey() {
-    return `nexa-ccxt-symbol-cache:usdt-only:${this.id}`;
+    return `nexa-ccxt-symbol-cache:usdt-only:price-scale-v2:${this.id}`;
   }
 }

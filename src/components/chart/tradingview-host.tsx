@@ -35,6 +35,7 @@ type TradingViewHostProps = {
   interval: string;
   chartType: "candles" | "bars" | "line";
   keepScreenAwake: boolean;
+  compact?: boolean;
   onToggleKeepScreenAwake?: () => void;
   onReady?: () => void;
   onChartStateChange?: (payload: { symbol: string; interval: string }) => void;
@@ -135,7 +136,7 @@ function updateDocumentTitle(symbol: string, price?: number, direction?: "up" | 
   document.title = `${titleSymbol} ${formatTitlePrice(price)} ${arrow}`;
 }
 
-function TradingViewHostInner({ symbol, interval, chartType, keepScreenAwake, onToggleKeepScreenAwake, onReady, onChartStateChange }: TradingViewHostProps, ref: React.Ref<TradingViewHostHandle>) {
+function TradingViewHostInner({ symbol, interval, chartType, keepScreenAwake, compact = false, onToggleKeepScreenAwake, onReady, onChartStateChange }: TradingViewHostProps, ref: React.Ref<TradingViewHostHandle>) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const widgetRef = useRef<ChartingLibraryWidget | null>(null);
   const keepAwakeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -278,25 +279,36 @@ function TradingViewHostInner({ symbol, interval, chartType, keepScreenAwake, on
           autosize: true,
           theme: "dark",
           preset: window.matchMedia("(max-width: 1024px)").matches ? "mobile" : undefined,
-          load_last_chart: true,
+          load_last_chart: !compact,
           enabled_features: [
             "header_widget",
             "left_toolbar",
             "control_bar",
             "timeframes_toolbar",
-            "show_object_tree",
+            ...(compact ? ["hide_right_toolbar"] : ["show_object_tree"]),
             "study_templates",
             "items_favoriting",
             "show_symbol_logos",
             "show_exchange_logos",
             "iframe_loading_compatibility_mode",
           ],
-          widgetbar: {
-            details: true,
-            datawindow: true,
-            watchlist: true,
-            news: false,
-          },
+          disabled_features: compact
+            ? [
+                "right_toolbar",
+                "show_object_tree",
+                "show_right_widgets_panel_by_default",
+                "open_account_manager",
+                "trading_account_manager",
+              ]
+            : [],
+          widgetbar: compact
+            ? undefined
+            : {
+                details: true,
+                datawindow: true,
+                watchlist: true,
+                news: false,
+              },
           favorites: {
             intervals: ["1", "5", "15", "60", "240", "1D"],
             chartTypes: ["Candles", "Line"],

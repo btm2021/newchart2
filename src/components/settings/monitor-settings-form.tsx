@@ -49,7 +49,7 @@ export function MonitorSettingsForm() {
       setMessage("Saved monitor settings.");
     } catch {
       setState("error");
-      setMessage("Could not save settings to Firebase.");
+      setMessage("Could not save settings to Supabase.");
     }
   }
 
@@ -61,7 +61,7 @@ export function MonitorSettingsForm() {
       <div className="mb-5">
         <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">Monitor Settings</h3>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Saved to Firebase and used by the OHLCV monitor workers.
+          Saved to Supabase and used by the OHLCV monitor workers.
         </p>
       </div>
 

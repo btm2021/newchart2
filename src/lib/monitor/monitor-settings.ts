@@ -1,5 +1,4 @@
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
-import { getFirebaseClient, getFirebaseWorkspaceId } from "@/lib/firebase/client";
+import { defaultAppSettings, type AppSettings } from "@/lib/settings/app-settings";
 import type { ResolutionString } from "@/lib/types/charting";
 
 export type MonitorSettings = {
@@ -8,75 +7,69 @@ export type MonitorSettings = {
   resolution: ResolutionString;
 };
 
-const STORAGE_KEY = "mint-monitor-settings-v1";
+type SettingsResponse = {
+  settings?: AppSettings;
+};
 
 export const defaultMonitorSettings: MonitorSettings = {
-  batchSize: 8,
-  refreshMinutes: 5,
-  resolution: "5",
+  batchSize: defaultAppSettings.monitorBatchSize,
+  refreshMinutes: defaultAppSettings.monitorRefreshSeconds / 60,
+  resolution: defaultAppSettings.defaultInterval,
 };
 
 function normalizeSettings(settings: Partial<MonitorSettings> | null | undefined): MonitorSettings {
   return {
-    batchSize: Math.min(30, Math.max(1, Number(settings?.batchSize) || defaultMonitorSettings.batchSize)),
+    batchSize: Math.min(200, Math.max(1, Number(settings?.batchSize) || defaultMonitorSettings.batchSize)),
     refreshMinutes: Math.min(240, Math.max(1, Number(settings?.refreshMinutes) || defaultMonitorSettings.refreshMinutes)),
     resolution: settings?.resolution || defaultMonitorSettings.resolution,
   };
 }
 
-function readLocalSettings() {
-  if (typeof window === "undefined") return defaultMonitorSettings;
+function fromAppSettings(settings: AppSettings): MonitorSettings {
+  return normalizeSettings({
+    batchSize: settings.monitorBatchSize,
+    refreshMinutes: Math.max(1, Math.round(settings.monitorRefreshSeconds / 60)),
+    resolution: settings.defaultInterval,
+  });
+}
 
+function toAppSettings(current: AppSettings, monitorSettings: MonitorSettings): AppSettings {
+  return {
+    ...current,
+    monitorBatchSize: monitorSettings.batchSize,
+    monitorRefreshSeconds: monitorSettings.refreshMinutes * 60,
+    defaultInterval: monitorSettings.resolution as AppSettings["defaultInterval"],
+  };
+}
+
+async function readAppSettings() {
+  const response = await fetch("/api/settings", { cache: "no-store" });
+  const payload = await response.json() as SettingsResponse & { error?: string };
+  if (!response.ok || !payload.settings) {
+    throw new Error(payload.error || "Could not load settings.");
+  }
+  return payload.settings;
+}
+
+export async function loadMonitorSettings() {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultMonitorSettings;
-    return normalizeSettings(JSON.parse(raw) as Partial<MonitorSettings>);
+    return fromAppSettings(await readAppSettings());
   } catch {
     return defaultMonitorSettings;
   }
 }
 
-function writeLocalSettings(settings: MonitorSettings) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-}
-
-function getSettingsRef() {
-  const firebase = getFirebaseClient();
-  if (!firebase) return null;
-  return doc(firebase.db, "workspaces", getFirebaseWorkspaceId(), "settings", "monitor");
-}
-
-export async function loadMonitorSettings() {
-  const fallback = readLocalSettings();
-  const settingsRef = getSettingsRef();
-  if (!settingsRef) return fallback;
-
-  try {
-    const snapshot = await getDoc(settingsRef);
-    if (!snapshot.exists()) return fallback;
-    const settings = normalizeSettings(snapshot.data() as Partial<MonitorSettings>);
-    writeLocalSettings(settings);
-    return settings;
-  } catch {
-    return fallback;
-  }
-}
-
 export async function saveMonitorSettings(settings: MonitorSettings) {
   const normalized = normalizeSettings(settings);
-  writeLocalSettings(normalized);
-
-  const settingsRef = getSettingsRef();
-  if (!settingsRef) return normalized;
-
-  await setDoc(
-    settingsRef,
-    {
-      ...normalized,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
-  );
-  return normalized;
+  const current = await readAppSettings();
+  const response = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ settings: toAppSettings(current, normalized) }),
+  });
+  const payload = await response.json() as SettingsResponse & { error?: string };
+  if (!response.ok || !payload.settings) {
+    throw new Error(payload.error || "Could not save settings.");
+  }
+  return fromAppSettings(payload.settings);
 }

@@ -1,17 +1,21 @@
 "use client";
-import React, { useEffect, useRef, useState,useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState,useCallback } from "react";
 import { ThemeToggleButton } from "@/components/common/ThemeToggleButton";
 import NotificationDropdown from "@/components/header/NotificationDropdown";
 import UserDropdown from "@/components/header/UserDropdown";
+import { getDatasourceRegistry } from "@/lib/datasources/registry";
+import type { SymbolDescriptor } from "@/lib/datasources/types";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSidebar } from "../context/SidebarContext";
 import {
   ChevronDownIcon,
+  DollarLineIcon,
   GridIcon,
   HorizontaLDots,
   ListIcon,
+  PlugInIcon,
   PieChartIcon,
   TableIcon,
 } from "../icons/index";
@@ -40,21 +44,35 @@ const navItems: NavItem[] = [
     path: "/monitor",
   },
   {
+    icon: <DollarLineIcon />,
+    name: "Paper Trading",
+    path: "/paper-trading",
+  },
+  {
     icon: <TableIcon />,
     name: "Supabase DB",
     path: "/supabase-db",
   },
+  {
+    icon: <PlugInIcon />,
+    name: "Settings",
+    path: "/settings",
+  },
 ];
 
 const othersItems: NavItem[] = [];
+const MAX_SYMBOL_RESULTS = 36;
 
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered, toggleSidebar, toggleMobileSidebar } = useSidebar();
   const pathname = usePathname();
   const [monitorSearch, setMonitorSearch] = useState("");
+  const [searchSymbols, setSearchSymbols] = useState<SymbolDescriptor[]>([]);
+  const [isLoadingSymbols, setIsLoadingSymbols] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const isMonitorPage = pathname === "/monitor";
   const showExpandedContent = isExpanded || isHovered || isMobileOpen;
+  const normalizedSearch = monitorSearch.trim().toUpperCase();
 
   const handleSidebarToggle = () => {
     if (window.innerWidth >= 1024) {
@@ -77,6 +95,56 @@ const AppSidebar: React.FC = () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSymbols() {
+      setIsLoadingSymbols(true);
+      try {
+        const registry = getDatasourceRegistry();
+        await registry.initialize();
+        if (mounted) {
+          setSearchSymbols(registry.getSymbols());
+        }
+      } catch {
+        if (mounted) {
+          setSearchSymbols([]);
+        }
+      } finally {
+        if (mounted) {
+          setIsLoadingSymbols(false);
+        }
+      }
+    }
+
+    void loadSymbols();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const filteredSearchSymbols = useMemo(() => {
+    if (!normalizedSearch) return [];
+
+    return searchSymbols
+      .filter((symbol) =>
+        [
+          symbol.symbol,
+          symbol.base,
+          symbol.quote,
+          symbol.displayName,
+          symbol.exchange,
+          symbol.datasourceId,
+          symbol.marketType,
+        ]
+          .join(" ")
+          .toUpperCase()
+          .includes(normalizedSearch),
+      )
+      .slice(0, MAX_SYMBOL_RESULTS);
+  }, [normalizedSearch, searchSymbols]);
 
   const renderMenuItems = (
     navItems: NavItem[],
@@ -399,6 +467,14 @@ const AppSidebar: React.FC = () => {
                 )}
               </h2>
               {renderMenuItems(navItems, "main")}
+              {showExpandedContent && (
+                <SidebarSymbolResults
+                  query={monitorSearch}
+                  symbols={filteredSearchSymbols}
+                  isLoading={isLoadingSymbols}
+                  totalSymbols={searchSymbols.length}
+                />
+              )}
             </div>
           </div>
         </nav>
@@ -422,5 +498,71 @@ const AppSidebar: React.FC = () => {
     </aside>
   );
 };
+
+function SidebarSymbolResults({
+  query,
+  symbols,
+  isLoading,
+  totalSymbols,
+}: {
+  query: string;
+  symbols: SymbolDescriptor[];
+  isLoading: boolean;
+  totalSymbols: number;
+}) {
+  const hasQuery = query.trim().length > 0;
+
+  if (!hasQuery && !isLoading) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-800">
+      <div className="mb-2 flex items-center justify-between px-1">
+        <span className="text-xs font-medium uppercase text-gray-400">Symbols</span>
+        <span className="text-[11px] text-gray-400">
+          {isLoading ? "Loading" : totalSymbols.toLocaleString()}
+        </span>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-1.5 px-1">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div
+              key={index}
+              className="h-9 rounded-lg bg-gray-100 dark:bg-white/[0.05]"
+            />
+          ))}
+        </div>
+      ) : symbols.length > 0 ? (
+        <div className="max-h-[320px] space-y-1 overflow-y-auto pr-1 custom-scrollbar">
+          {symbols.map((symbol) => (
+            <Link
+              key={symbol.id}
+              href={`/chart?source=${encodeURIComponent(symbol.datasourceId)}&symbol=${encodeURIComponent(symbol.symbol)}`}
+              className="group flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-left transition hover:bg-gray-50 dark:hover:bg-white/[0.05]"
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium text-gray-700 group-hover:text-brand-500 dark:text-gray-200 dark:group-hover:text-brand-300">
+                  {symbol.symbol}
+                </span>
+                <span className="block truncate text-[11px] text-gray-400">
+                  {symbol.exchange} / {symbol.marketType}
+                </span>
+              </span>
+              <span className="shrink-0 rounded-md bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-white/[0.07] dark:text-gray-300">
+                {symbol.datasourceId.replace("_", " ")}
+              </span>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+          No symbols found
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default AppSidebar;

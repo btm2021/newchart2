@@ -11,6 +11,7 @@ export interface SymbolDescriptor {
   base: string;
   quote: string;
   displayName: string;
+  priceScale?: number;
 }
 
 export interface BarsRequest {
