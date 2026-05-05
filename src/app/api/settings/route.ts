@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeAppSettings, type ExchangeEnvStatus } from "@/lib/settings/app-settings";
 import { readAppSettings, writeAppSettings } from "@/lib/settings/app-settings-supabase";
+import { readRequestSession } from "@/lib/auth/server-session";
 
 export const runtime = "nodejs";
 
@@ -44,9 +45,9 @@ function errorResponse(error: unknown) {
   return NextResponse.json({ error: message }, { status: 500 });
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const settings = await readAppSettings();
+    const settings = await readAppSettings(readRequestSession(request)?.accountId);
     return NextResponse.json({
       ...settings,
       exchangeEnv: getExchangeEnvStatus(),
@@ -59,7 +60,7 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const payload = await request.json() as { settings?: unknown };
-    const settings = await writeAppSettings(normalizeAppSettings(payload.settings));
+    const settings = await writeAppSettings(normalizeAppSettings(payload.settings), readRequestSession(request)?.accountId);
     return NextResponse.json({
       ...settings,
       exchangeEnv: getExchangeEnvStatus(),

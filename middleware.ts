@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-
-const AUTH_COOKIE_NAME = "tailadmin_auth";
+import { AUTH_COOKIE_NAME } from "@/lib/auth/session-shared";
 
 const PUBLIC_PATHS = new Set([
   "/login",

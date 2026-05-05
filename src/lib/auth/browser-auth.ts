@@ -1,76 +1,31 @@
 "use client";
 
-import { getFirebaseClient } from "@/lib/firebase/client";
-import {
-  doc,
-  getDoc,
-  serverTimestamp,
-  setDoc,
-  type Firestore,
-} from "firebase/firestore";
-
-export const AUTH_COOKIE_NAME = "tailadmin_auth";
-export const AUTH_STORAGE_KEY = "tailadmin_auth";
-
-type AuthUser = {
-  username: string;
-  displayName: string;
-};
-
-const DEFAULT_USER = {
-  username: "bao",
-  password: "123",
-  displayName: "bao",
-};
+import { AUTH_COOKIE_NAME, AUTH_STORAGE_KEY, normalizeUsername, type AuthUser } from "@/lib/auth/session-shared";
 
 const FOREVER_COOKIE_EXPIRY = "Fri, 31 Dec 9999 23:59:59 GMT";
-
-function normalizeUsername(username: string) {
-  return username.trim().toLowerCase();
-}
-
-async function ensureDefaultUser(db: Firestore, username: string) {
-  if (username !== DEFAULT_USER.username) {
-    return;
-  }
-
-  const userRef = doc(db, "users", DEFAULT_USER.username);
-  const snapshot = await getDoc(userRef);
-
-  if (!snapshot.exists()) {
-    await setDoc(userRef, {
-      ...DEFAULT_USER,
-      createdAt: serverTimestamp(),
-      source: "tailadmin-login-seed",
-    });
-  }
-}
 
 export async function signInWithBrowserSession(
   username: string,
   password: string
 ) {
-  const firebase = getFirebaseClient();
-  if (!firebase) {
-    throw new Error("Firebase config is missing.");
+  const response = await fetch("/api/auth/session", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      username: normalizeUsername(username),
+      password,
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error || "Invalid username or password.");
   }
 
-  const normalizedUsername = normalizeUsername(username);
-  await ensureDefaultUser(firebase.db, normalizedUsername);
-
-  const userRef = doc(firebase.db, "users", normalizedUsername);
-  const snapshot = await getDoc(userRef);
-  const user = snapshot.data();
-
-  if (!snapshot.exists() || user?.password !== password) {
-    throw new Error("Invalid username or password.");
-  }
-
-  const session: AuthUser = {
-    username: normalizedUsername,
-    displayName:
-      typeof user?.displayName === "string" ? user.displayName : normalizedUsername,
-  };
+  const payload = await response.json() as { user: AuthUser };
+  const session = payload.user;
 
   saveBrowserSession(session);
   return session;
@@ -103,4 +58,5 @@ export function readBrowserSession(): AuthUser | null {
 export function clearBrowserSession() {
   window.localStorage.removeItem(AUTH_STORAGE_KEY);
   document.cookie = `${AUTH_COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
+  void fetch("/api/auth/session", { method: "DELETE" }).catch(() => undefined);
 }

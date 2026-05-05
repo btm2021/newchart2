@@ -5,7 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { getDatasourceRegistry } from "@/lib/datasources/registry";
 import { TradingViewHost } from "@/components/chart/tradingview-host";
 import { useNativePwa } from "@/lib/pwa/use-native-pwa";
-import { defaultWorkspaceState, loadWorkspaceState, saveWorkspaceState, type UserWorkspaceState } from "@/lib/storage/workspace-state";
+import {
+  defaultWorkspaceState,
+  loadRemoteWorkspaceState,
+  loadWorkspaceState,
+  saveRemoteWorkspaceState,
+  saveWorkspaceState,
+  type UserWorkspaceState,
+} from "@/lib/storage/workspace-state";
 
 const KNOWN_DATASOURCE_IDS = new Set(["BINANCE_SPOT", "BINANCE_FUTURES", "OKX_PERP", "OANDA"]);
 
@@ -104,35 +111,60 @@ export function ChartAppShell() {
   const searchParams = useSearchParams();
   const [workspace, setWorkspace] = useState<UserWorkspaceState>(defaultWorkspaceState);
   const [ready, setReady] = useState(false);
+  const [remoteReady, setRemoteReady] = useState(false);
   useNativePwa(workspace.keepScreenAwake);
 
   useEffect(() => {
-    const savedWorkspace = loadWorkspaceState();
+    let disposed = false;
+    const localWorkspace = loadWorkspaceState();
     const querySymbol = searchParams.get("symbol");
     const queryDatasourceId = searchParams.get("source") || searchParams.get("datasource");
     const queryInterval = searchParams.get("interval");
-    const requestedDatasourceId = getDatasourceIdFromSymbol(querySymbol || "")
-      || queryDatasourceId?.toUpperCase()
-      || savedWorkspace.activeDatasourceId;
-    const activeSymbol = querySymbol
-      ? normalizeSymbolForDatasource(querySymbol, requestedDatasourceId)
-      : normalizeSymbolForDatasource(savedWorkspace.activeSymbol, savedWorkspace.activeDatasourceId);
-    const activeDatasourceId = getDatasourceIdFromSymbol(activeSymbol) || requestedDatasourceId;
 
-    setWorkspace({
-      ...savedWorkspace,
-      activeSymbol: activeSymbol || savedWorkspace.activeSymbol,
-      activeDatasourceId,
-      activeInterval: queryInterval || savedWorkspace.activeInterval,
-    });
-    void getDatasourceRegistry().initialize();
+    function applyWorkspace(savedWorkspace: UserWorkspaceState) {
+      const requestedDatasourceId = getDatasourceIdFromSymbol(querySymbol || "")
+        || queryDatasourceId?.toUpperCase()
+        || savedWorkspace.activeDatasourceId;
+      const activeSymbol = querySymbol
+        ? normalizeSymbolForDatasource(querySymbol, requestedDatasourceId)
+        : normalizeSymbolForDatasource(savedWorkspace.activeSymbol, savedWorkspace.activeDatasourceId);
+      const activeDatasourceId = getDatasourceIdFromSymbol(activeSymbol) || requestedDatasourceId;
+
+      return {
+        ...savedWorkspace,
+        activeSymbol: activeSymbol || savedWorkspace.activeSymbol,
+        activeDatasourceId,
+        activeInterval: queryInterval || savedWorkspace.activeInterval,
+      };
+    }
+
+    setWorkspace(applyWorkspace(localWorkspace));
     setReady(true);
+    setRemoteReady(false);
+    void getDatasourceRegistry().initialize();
+
+    void loadRemoteWorkspaceState()
+      .then((remoteWorkspace) => {
+        if (disposed) return;
+        setWorkspace(applyWorkspace(remoteWorkspace));
+        setRemoteReady(true);
+      })
+      .catch(() => {
+        if (!disposed) setRemoteReady(true);
+      });
+
+    return () => {
+      disposed = true;
+    };
   }, [searchParams]);
 
   useEffect(() => {
     if (!ready) return;
     saveWorkspaceState(workspace);
-  }, [ready, workspace]);
+    if (remoteReady) {
+      void saveRemoteWorkspaceState(workspace).catch(() => undefined);
+    }
+  }, [ready, remoteReady, workspace]);
 
   return (
     <div className="chart-page">

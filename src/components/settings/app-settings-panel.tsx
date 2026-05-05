@@ -10,10 +10,24 @@ type SettingsResponse = {
   error?: string;
 };
 
+type ExchangeKeysPayload = {
+  configured?: Record<string, Record<string, boolean>>;
+  masked?: Record<string, Record<string, string>>;
+  error?: string;
+};
+
+const EXCHANGE_KEY_FIELDS = {
+  BINANCE: ["apiKey", "secret"],
+  OKX: ["apiKey", "secret", "password"],
+  BYBIT: ["apiKey", "secret"],
+} as const;
+
 export function AppSettingsPanel() {
   const [settings, setSettings] = useState<AppSettings>(defaultAppSettings);
   const [exchangeEnv, setExchangeEnv] = useState<ExchangeEnvStatus[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [exchangeKeys, setExchangeKeys] = useState<Record<string, Record<string, string>>>({});
+  const [maskedExchangeKeys, setMaskedExchangeKeys] = useState<Record<string, Record<string, string>>>({});
   const [status, setStatus] = useState<"loading" | "ready" | "saving" | "error">("loading");
   const [message, setMessage] = useState("");
 
@@ -24,6 +38,11 @@ export function AppSettingsPanel() {
         const response = await fetch("/api/settings", { cache: "no-store" });
         const payload = await response.json() as SettingsResponse;
         if (!response.ok) throw new Error(payload.error || "Could not load settings.");
+        const keysResponse = await fetch("/api/account/exchange-api-keys", { cache: "no-store" });
+        const keysPayload = await keysResponse.json() as ExchangeKeysPayload;
+        if (keysResponse.ok) {
+          setMaskedExchangeKeys(keysPayload.masked ?? {});
+        }
         setSettings(payload.settings);
         setExchangeEnv(payload.exchangeEnv);
         setUpdatedAt(payload.updatedAt);
@@ -48,8 +67,17 @@ export function AppSettingsPanel() {
       });
       const payload = await response.json() as SettingsResponse;
       if (!response.ok) throw new Error(payload.error || "Could not save settings.");
+      const keyResponse = await fetch("/api/account/exchange-api-keys", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keys: exchangeKeys }),
+      });
+      const keyPayload = await keyResponse.json() as ExchangeKeysPayload;
+      if (!keyResponse.ok) throw new Error(keyPayload.error || "Could not save exchange keys.");
       setSettings(payload.settings);
       setExchangeEnv(payload.exchangeEnv);
+      setExchangeKeys({});
+      setMaskedExchangeKeys(keyPayload.masked ?? {});
       setUpdatedAt(payload.updatedAt);
       setMessage("Settings saved to Supabase.");
       setStatus("ready");
@@ -63,6 +91,16 @@ export function AppSettingsPanel() {
     setSettings((current) => ({
       ...current,
       [key]: value,
+    }));
+  };
+
+  const updateExchangeKey = (exchange: string, key: string, value: string) => {
+    setExchangeKeys((current) => ({
+      ...current,
+      [exchange]: {
+        ...(current[exchange] ?? {}),
+        [key]: value,
+      },
     }));
   };
 
@@ -118,11 +156,21 @@ export function AppSettingsPanel() {
         </section>
 
         <section className="col-span-12 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] xl:col-span-5">
-          <SectionTitle title="Exchange API Env" subtitle="Secrets are read only from server environment variables." />
+          <SectionTitle title="Exchange API Keys" subtitle="Stored per account in Supabase. Blank fields keep existing values." />
           <div className="mt-5 space-y-3">
-            {exchangeEnv.map((exchange) => (
-              <ExchangeEnvCard key={exchange.id} exchange={exchange} />
-            ))}
+            {exchangeEnv.map((exchange) => {
+              const fields = EXCHANGE_KEY_FIELDS[exchange.id] ?? [];
+              return (
+                <ExchangeEnvCard
+                  key={exchange.id}
+                  exchange={exchange}
+                  fields={[...fields]}
+                  maskedKeys={maskedExchangeKeys[exchange.id] ?? {}}
+                  draftKeys={exchangeKeys[exchange.id] ?? {}}
+                  onChange={(key, value) => updateExchangeKey(exchange.id, key, value)}
+                />
+              );
+            })}
           </div>
         </section>
       </div>
@@ -228,26 +276,44 @@ function ToggleField({ label, description, checked, onChange }: { label: string;
   );
 }
 
-function ExchangeEnvCard({ exchange }: { exchange: ExchangeEnvStatus }) {
+function ExchangeEnvCard({
+  exchange,
+  fields,
+  maskedKeys,
+  draftKeys,
+  onChange,
+}: {
+  exchange: ExchangeEnvStatus;
+  fields: string[];
+  maskedKeys: Record<string, string>;
+  draftKeys: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}) {
   return (
     <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="font-medium text-gray-900 dark:text-white">{exchange.label}</p>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Configured through `.env` only</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Account-scoped credentials</p>
         </div>
         <span className={`rounded-md px-2 py-1 text-xs font-medium ${exchange.configured ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400" : "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-400"}`}>
           {exchange.configured ? "Ready" : "Missing"}
         </span>
       </div>
-      <div className="mt-3 space-y-1.5">
-        {exchange.requiredEnv.map((item) => (
-          <div key={item.name} className="flex items-center justify-between gap-3 text-xs">
-            <code className="text-gray-500 dark:text-gray-400">{item.name}</code>
-            <span className={item.configured ? "text-success-500" : "text-warning-500"}>
-              {item.configured ? "set" : "missing"}
+      <div className="mt-3 space-y-2">
+        {fields.map((field) => (
+          <label key={field} className="block">
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              {field} {maskedKeys[field] ? `(${maskedKeys[field]})` : ""}
             </span>
-          </div>
+            <input
+              value={draftKeys[field] ?? ""}
+              onChange={(event) => onChange(field, event.target.value)}
+              placeholder={maskedKeys[field] ? "Leave blank to keep current value" : field}
+              type={field.toLowerCase().includes("secret") || field.toLowerCase().includes("password") ? "password" : "text"}
+              className="mt-1 h-9 w-full rounded-lg border border-gray-200 bg-transparent px-3 text-xs text-gray-800 outline-none transition focus:border-brand-300 focus:ring-3 focus:ring-brand-500/10 dark:border-gray-800 dark:bg-white/[0.03] dark:text-white/90"
+            />
+          </label>
         ))}
       </div>
     </div>

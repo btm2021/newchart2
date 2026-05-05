@@ -13,7 +13,7 @@ export default function SignInForm() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [isChecked, setIsChecked] = useState(true);
-  const [username, setUsername] = useState("bao");
+  const [username, setUsername] = useState("abc");
   const [password, setPassword] = useState("123");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -76,7 +76,7 @@ export default function SignInForm() {
                     Username <span className="text-error-500">*</span>{" "}
                   </Label>
                   <Input
-                    placeholder="bao"
+                    placeholder="abc"
                     type="text"
                     defaultValue={username}
                     onChange={(event) => setUsername(event.target.value)}

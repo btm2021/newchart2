@@ -1,0 +1,29 @@
+export const AUTH_COOKIE_NAME = "tailadmin_auth";
+export const AUTH_STORAGE_KEY = "tailadmin_auth";
+
+export type AuthUser = {
+  accountId: string;
+  username: string;
+  displayName: string;
+};
+
+export function normalizeUsername(username: string) {
+  return username.trim().toLowerCase();
+}
+
+export function parseAuthCookieValue(value?: string): AuthUser | null {
+  if (!value) return null;
+
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value)) as Partial<AuthUser>;
+    if (!parsed.username) return null;
+
+    return {
+      accountId: typeof parsed.accountId === "string" ? parsed.accountId : "",
+      username: parsed.username,
+      displayName: typeof parsed.displayName === "string" ? parsed.displayName : parsed.username,
+    };
+  } catch {
+    return null;
+  }
+}

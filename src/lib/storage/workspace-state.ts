@@ -37,3 +37,30 @@ export function saveWorkspaceState(state: UserWorkspaceState) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
+
+export async function loadRemoteWorkspaceState(): Promise<UserWorkspaceState> {
+  const response = await fetch("/api/account/chart-settings");
+  if (!response.ok) {
+    throw new Error("Could not load chart settings.");
+  }
+
+  const payload = await response.json() as { settings?: Partial<UserWorkspaceState> };
+  return {
+    ...defaultWorkspaceState,
+    ...(payload.settings ?? {}),
+  };
+}
+
+export async function saveRemoteWorkspaceState(state: UserWorkspaceState) {
+  const response = await fetch("/api/account/chart-settings", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ settings: state }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Could not save chart settings.");
+  }
+}

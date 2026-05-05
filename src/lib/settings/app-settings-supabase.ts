@@ -1,71 +1,39 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { defaultAppSettings, normalizeAppSettings, type AppSettings } from "@/lib/settings/app-settings";
+import { readAccount, readAccountAppSettings, writeAccountAppSettings } from "@/lib/accounts/accounts-supabase";
 
-type SettingsRow = {
-  key: string;
-  value: unknown;
-  updated_at: string;
-};
-
-let supabase: SupabaseClient | null = null;
-
-function getSupabase() {
-  if (supabase) return supabase;
-
-  const url = process.env.SUPABASE_URL;
-  const secretKey = process.env.SUPABASE_SECRET_KEY;
-
-  if (!url || !secretKey) {
-    throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_SECRET_KEY.");
-  }
-
-  supabase = createClient(url, secretKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-
-  return supabase;
-}
-
-export async function readAppSettings() {
-  const { data, error } = await getSupabase()
-    .from("app_settings")
-    .select("key,value,updated_at")
-    .eq("key", "global")
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-
-  if (!data) {
-    await writeAppSettings(defaultAppSettings);
+export async function readAppSettings(accountId?: string) {
+  if (!accountId) {
     return {
       settings: defaultAppSettings,
       updatedAt: null,
     };
   }
 
-  const row = data as SettingsRow;
+  const account = await readAccount(accountId);
+  if (!account) {
+    return {
+      settings: defaultAppSettings,
+      updatedAt: null,
+    };
+  }
+
   return {
-    settings: normalizeAppSettings(row.value),
-    updatedAt: row.updated_at,
+    settings: await readAccountAppSettings(accountId),
+    updatedAt: null,
   };
 }
 
-export async function writeAppSettings(settings: AppSettings) {
+export async function writeAppSettings(settings: AppSettings, accountId?: string) {
   const normalized = normalizeAppSettings(settings);
-  const { data, error } = await getSupabase()
-    .from("app_settings")
-    .upsert({ key: "global", value: normalized }, { onConflict: "key" })
-    .select("key,value,updated_at")
-    .single();
+  if (!accountId) {
+    return {
+      settings: normalized,
+      updatedAt: null,
+    };
+  }
 
-  if (error) throw new Error(error.message);
-
-  const row = data as SettingsRow;
   return {
-    settings: normalizeAppSettings(row.value),
-    updatedAt: row.updated_at,
+    settings: await writeAccountAppSettings(accountId, normalized),
+    updatedAt: new Date().toISOString(),
   };
 }
