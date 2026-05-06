@@ -21,6 +21,7 @@ export type ExchangeEnvStatus = {
   id: "BINANCE" | "OKX" | "BYBIT";
   label: string;
   configured: boolean;
+  enabled: boolean;
   requiredEnv: Array<{
     name: string;
     configured: boolean;

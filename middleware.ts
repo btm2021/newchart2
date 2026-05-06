@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { AUTH_COOKIE_NAME } from "@/lib/auth/session-shared";
+import { AUTH_COOKIE_NAME, parseAuthCookieValue } from "@/lib/auth/session-shared";
 
 const PUBLIC_PATHS = new Set([
   "/login",
@@ -28,7 +28,8 @@ export function middleware(request: NextRequest) {
   }
 
   const isPublicPath = PUBLIC_PATHS.has(pathname);
-  const isAuthenticated = Boolean(request.cookies.get(AUTH_COOKIE_NAME)?.value);
+  const session = parseAuthCookieValue(request.cookies.get(AUTH_COOKIE_NAME)?.value);
+  const isAuthenticated = Boolean(session?.accountId && session.username);
 
   if (!isAuthenticated && !isPublicPath) {
     const loginUrl = request.nextUrl.clone();

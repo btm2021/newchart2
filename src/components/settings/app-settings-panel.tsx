@@ -114,7 +114,7 @@ export function AppSettingsPanel() {
             </span>
             <h1 className="mt-3 text-xl font-semibold text-gray-900 dark:text-white">Application Settings</h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Runtime behavior is stored in Supabase. Exchange API credentials stay in `.env`.
+              Runtime behavior is stored in Supabase. Exchange API credentials are stored per account.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -297,7 +297,7 @@ function ExchangeEnvCard({
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Account-scoped credentials</p>
         </div>
         <span className={`rounded-md px-2 py-1 text-xs font-medium ${exchange.configured ? "bg-success-50 text-success-600 dark:bg-success-500/15 dark:text-success-400" : "bg-warning-50 text-warning-600 dark:bg-warning-500/15 dark:text-warning-400"}`}>
-          {exchange.configured ? "Ready" : "Missing"}
+          {exchange.enabled ? (exchange.configured ? "Ready" : "Missing") : "Disabled"}
         </span>
       </div>
       <div className="mt-3 space-y-2">

@@ -5,6 +5,7 @@ export type AuthUser = {
   accountId: string;
   username: string;
   displayName: string;
+  email: string;
 };
 
 export function normalizeUsername(username: string) {
@@ -22,6 +23,7 @@ export function parseAuthCookieValue(value?: string): AuthUser | null {
       accountId: typeof parsed.accountId === "string" ? parsed.accountId : "",
       username: parsed.username,
       displayName: typeof parsed.displayName === "string" ? parsed.displayName : parsed.username,
+      email: typeof parsed.email === "string" ? parsed.email : "",
     };
   } catch {
     return null;

@@ -1,19 +1,13 @@
-import { MonitorDataTable } from "@/components/settings/monitor-data-table";
-import { MonitorSettingsForm } from "@/components/settings/monitor-settings-form";
+import { ProfileSettingsPanel } from "@/components/profile/profile-settings-panel";
 import { Metadata } from "next";
 import React from "react";
 
 export const metadata: Metadata = {
-  title: "Setting | Mint",
+  title: "Profile | Mint",
   description:
-    "Settings for Mint",
+    "User profile and exchange access settings",
 };
 
 export default function Profile() {
-  return (
-    <div className="space-y-6">
-      <MonitorSettingsForm />
-      <MonitorDataTable />
-    </div>
-  );
+  return <ProfileSettingsPanel />;
 }

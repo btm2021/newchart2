@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/server";
+import { normalizeUsername } from "@/lib/auth/session-shared";
 import { normalizeAppSettings, type AppSettings } from "@/lib/settings/app-settings";
 import type { UserWorkspaceState } from "@/lib/storage/workspace-state";
 
@@ -6,14 +7,27 @@ export type AccountSession = {
   accountId: string;
   username: string;
   displayName: string;
+  email: string;
 };
 
 export type ExchangeApiKeys = Record<string, Record<string, string>>;
+export type ExchangeEnabled = Record<string, boolean>;
+
+export type AccountProfile = {
+  accountId: string;
+  username: string;
+  displayName: string;
+  email: string;
+  phone: string;
+  address: string;
+  exchangeEnabled: ExchangeEnabled;
+};
 
 type VerifyAccountRow = {
   id: string;
   username: string;
   display_name: string;
+  email: string | null;
   chart_settings: unknown;
 };
 
@@ -21,8 +35,21 @@ type AccountRow = {
   id: string;
   username: string;
   display_name: string;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
   chart_settings: unknown;
   exchange_api_keys: unknown;
+  exchange_enabled: unknown;
+};
+
+type CreateAccountInput = {
+  username: string;
+  password: string;
+  displayName: string;
+  email: string;
+  phone?: string;
+  address?: string;
 };
 
 export async function verifyAccountPassword(username: string, password: string): Promise<AccountSession | null> {
@@ -40,19 +67,93 @@ export async function verifyAccountPassword(username: string, password: string):
   return {
     accountId: row.id,
     username: row.username,
-    displayName: row.display_name,
+    displayName: row.display_name || row.username,
+    email: row.email ?? "",
+  };
+}
+
+export async function createAccount(input: CreateAccountInput): Promise<AccountSession> {
+  const { data, error } = await getSupabaseAdmin()
+    .rpc("create_account", {
+      p_username: normalizeUsername(input.username),
+      p_password: input.password,
+      p_display_name: input.displayName,
+      p_email: input.email,
+      p_phone: input.phone ?? "",
+      p_address: input.address ?? "",
+    });
+
+  if (error) throw new Error(error.message);
+
+  const row = (Array.isArray(data) ? data[0] : null) as {
+    id: string;
+    username: string;
+    display_name: string | null;
+    email: string | null;
+  } | null;
+  if (!row) throw new Error("Could not create account.");
+
+  return {
+    accountId: row.id,
+    username: row.username,
+    displayName: row.display_name || row.username,
+    email: row.email ?? "",
   };
 }
 
 export async function readAccount(accountId: string) {
   const { data, error } = await getSupabaseAdmin()
     .from("accounts")
-    .select("id,username,display_name,chart_settings,exchange_api_keys")
+    .select("id,username,display_name,email,phone,address,chart_settings,exchange_api_keys,exchange_enabled")
     .eq("id", accountId)
     .maybeSingle();
 
   if (error) throw new Error(error.message);
   return data as AccountRow | null;
+}
+
+export async function readAccountProfile(accountId: string): Promise<AccountProfile | null> {
+  const account = await readAccount(accountId);
+  if (!account) return null;
+
+  return {
+    accountId: account.id,
+    username: account.username,
+    displayName: account.display_name || account.username,
+    email: account.email ?? "",
+    phone: account.phone ?? "",
+    address: account.address ?? "",
+    exchangeEnabled: normalizeExchangeEnabled(account.exchange_enabled),
+  };
+}
+
+export async function writeAccountProfile(accountId: string, profile: Partial<AccountProfile> & { password?: string }) {
+  const updates: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (typeof profile.displayName === "string") updates.display_name = profile.displayName.trim();
+  if (typeof profile.email === "string") updates.email = profile.email.trim().toLowerCase() || null;
+  if (typeof profile.phone === "string") updates.phone = profile.phone.trim();
+  if (typeof profile.address === "string") updates.address = profile.address.trim();
+  if (profile.exchangeEnabled) updates.exchange_enabled = normalizeExchangeEnabled(profile.exchangeEnabled);
+
+  const { error } = await getSupabaseAdmin()
+    .from("accounts")
+    .update(updates)
+    .eq("id", accountId);
+  if (error) throw new Error(error.message);
+
+  if (profile.password?.trim()) {
+    const { error: passwordError } = await getSupabaseAdmin()
+      .rpc("set_account_password", {
+        p_account_id: accountId,
+        p_password: profile.password,
+      });
+    if (passwordError) throw new Error(passwordError.message);
+  }
+
+  return readAccountProfile(accountId);
 }
 
 export async function readAccountChartSettings(accountId: string): Promise<Partial<UserWorkspaceState>> {
@@ -91,6 +192,20 @@ export async function readExchangeApiKeys(accountId: string): Promise<ExchangeAp
   return typeof account?.exchange_api_keys === "object" && account.exchange_api_keys !== null
     ? account.exchange_api_keys as ExchangeApiKeys
     : {};
+}
+
+export async function readExchangeEnabled(accountId: string): Promise<ExchangeEnabled> {
+  const account = await readAccount(accountId);
+  return normalizeExchangeEnabled(account?.exchange_enabled);
+}
+
+export function normalizeExchangeEnabled(value: unknown): ExchangeEnabled {
+  const source = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  return {
+    BINANCE: typeof source.BINANCE === "boolean" ? source.BINANCE : true,
+    OKX: typeof source.OKX === "boolean" ? source.OKX : false,
+    BYBIT: typeof source.BYBIT === "boolean" ? source.BYBIT : false,
+  };
 }
 
 export async function writeExchangeApiKeys(accountId: string, patch: ExchangeApiKeys) {

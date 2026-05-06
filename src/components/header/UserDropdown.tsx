@@ -12,6 +12,7 @@ export default function UserDropdown() {
   const [session, setSession] = useState<ReturnType<typeof readBrowserSession>>(null);
   const displayName = session?.displayName || "bao";
   const username = session?.username || "bao";
+  const email = session?.email || username;
 
   useEffect(() => {
     setSession(readBrowserSession());
@@ -80,7 +81,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
             {displayName}
           </span>
           <span className="mt-0.5 block text-theme-xs text-gray-500 dark:text-gray-400">
-            {username}
+            {email}
           </span>
         </div>
 

@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
       accountId: account.accountId,
       username: account.username,
       displayName: account.displayName,
+      email: account.email,
     };
     const response = NextResponse.json({ user });
     response.cookies.set(AUTH_COOKIE_NAME, encodeURIComponent(JSON.stringify(user)), {

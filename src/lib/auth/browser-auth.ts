@@ -31,6 +31,35 @@ export async function signInWithBrowserSession(
   return session;
 }
 
+export async function signUpWithBrowserSession(input: {
+  username: string;
+  password: string;
+  displayName: string;
+  email: string;
+  phone?: string;
+  address?: string;
+}) {
+  const response = await fetch("/api/auth/signup", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...input,
+      username: normalizeUsername(input.username),
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error || "Could not create account.");
+  }
+
+  const payload = await response.json() as { user: AuthUser };
+  saveBrowserSession(payload.user);
+  return payload.user;
+}
+
 export function saveBrowserSession(user: AuthUser) {
   const value = encodeURIComponent(JSON.stringify(user));
   window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));

@@ -7,6 +7,7 @@ import { ReplayController } from "@/lib/replay/replay-controller";
 import { createChartLayoutStore } from "@/lib/storage/chart-layout-store";
 import { createTvSaveLoadAdapter } from "@/lib/storage/tv-save-load-adapter";
 import { TradingViewDatafeed } from "@/lib/datasources/tradingview-datafeed";
+import { readBrowserSession } from "@/lib/auth/browser-auth";
 import type { ChartingLibraryWidget } from "@/lib/types/charting";
 
 const STUDY_SCRIPTS = [
@@ -266,9 +267,12 @@ function TradingViewHostInner({ symbol, interval, chartType, keepScreenAwake, co
         if (disposed || !window.TradingView || !containerRef.current) return;
 
         const containerId = "tv-chart-container";
+        const accountId = readBrowserSession()?.accountId || "guest";
         containerRef.current.id = containerId;
 
         const widget = new window.TradingView.widget({
+          client_id: accountId,
+          user_id: accountId,
           symbol,
           interval,
           datafeed,
