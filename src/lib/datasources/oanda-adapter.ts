@@ -342,7 +342,7 @@ export class OandaAdapter extends BaseDatasourceAdapter {
           return;
         }
         onResetCacheNeededCallback?.();
-        window.setTimeout(connect, 1500);
+        globalThis.setTimeout(connect, 1500);
       }
     };
 

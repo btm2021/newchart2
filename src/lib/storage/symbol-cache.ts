@@ -24,7 +24,7 @@ async function getDb() {
 }
 
 export async function readSymbolCache<T>(key: string, maxAgeMs: number, ignoreAge = false): Promise<T[]> {
-  if (typeof window === "undefined") return [];
+  if (typeof indexedDB === "undefined") return [];
 
   try {
     const db = await getDb();
@@ -38,7 +38,7 @@ export async function readSymbolCache<T>(key: string, maxAgeMs: number, ignoreAg
 }
 
 export async function writeSymbolCache<T>(key: string, symbols: T[]) {
-  if (typeof window === "undefined") return;
+  if (typeof indexedDB === "undefined") return;
 
   try {
     const db = await getDb();

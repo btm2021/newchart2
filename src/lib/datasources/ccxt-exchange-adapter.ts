@@ -432,7 +432,7 @@ export abstract class CcxtExchangeAdapter extends BaseDatasourceAdapter {
   }
 
   private sleep(ms: number) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
+    return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
   }
 
   private getCacheKey() {

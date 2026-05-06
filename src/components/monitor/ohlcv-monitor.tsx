@@ -1,87 +1,18 @@
 "use client";
 
 import { MiniLineChart } from "@/components/monitor/mini-line-chart";
-import { getDatasourceRegistry } from "@/lib/datasources/registry";
-import type { DatasourceAdapter, SymbolDescriptor } from "@/lib/datasources/types";
-import {
-  defaultMonitorSettings,
-  loadMonitorSettings,
-  type MonitorSettings,
-} from "@/lib/monitor/monitor-settings";
-import {
-  readRecordsByDatasource,
-  writeOhlcvRecords,
-  type OhlcvMonitorRecord,
-} from "@/lib/monitor/ohlcv-monitor-store";
+import type { SymbolDescriptor } from "@/lib/datasources/types";
+import type { ExchangeStatus } from "@/lib/monitor/monitor-engine";
+import type { OhlcvMonitorRecord } from "@/lib/monitor/ohlcv-monitor-store";
+import { useMonitorWorkerSnapshot } from "@/lib/monitor/monitor-worker-client";
 import type { Bar, ResolutionString } from "@/lib/types/charting";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-type ExchangeStatus = {
-  datasourceId: string;
-  label: string;
-  totalSymbols: number;
-  dueSymbols: number;
-  updated: number;
-  failed: number;
-  activeBatch: number;
-  state: "idle" | "initializing" | "running" | "waiting" | "stopped" | "error";
-  lastMessage: string;
-};
-
-const BATCH_DELAY_MS = 3_000;
-const LOOKBACK_BARS = 1500;
-const EXPIRE_SCAN_INTERVAL_SECONDS = 15 * 60;
-const OUTDATED_AFTER_SECONDS = 15 * 60;
-const SMART_REFRESH_INTERVAL_SECONDS = 60;
-const SMART_REFRESH_DIVISOR = 30;
 const FAVORITES_SOURCE_ID = "FAVORITES";
 const FAVORITES_STORAGE_KEY = "mint-monitor-favorites-v1";
 const VIRTUAL_CARD_GAP = 16;
 const MONITOR_CARD_HEIGHT = 220;
-
-function nowUnix() {
-  return Math.floor(Date.now() / 1000);
-}
-
-function sleep(ms: number, shouldStop: () => boolean) {
-  return new Promise<void>((resolve) => {
-    const startedAt = Date.now();
-    const tick = () => {
-      if (shouldStop() || Date.now() - startedAt >= ms) {
-        resolve();
-        return;
-      }
-      window.setTimeout(tick, 150);
-    };
-    tick();
-  });
-}
-
-function resolutionToSeconds(resolution: ResolutionString) {
-  switch (resolution) {
-    case "1":
-      return 60;
-    case "5":
-      return 300;
-    case "15":
-      return 900;
-    case "30":
-      return 1_800;
-    case "60":
-      return 3_600;
-    case "240":
-      return 14_400;
-    case "1D":
-      return 86_400;
-    case "1W":
-      return 604_800;
-    case "1M":
-      return 2_592_000;
-    default:
-      return 300;
-  }
-}
 
 function getChangePercent(bars: Bar[]) {
   const first = bars.at(-2)?.close;
@@ -90,242 +21,16 @@ function getChangePercent(bars: Bar[]) {
   return ((last - first) / first) * 100;
 }
 
-function toStatus(adapter: DatasourceAdapter): ExchangeStatus {
-  return {
-    datasourceId: adapter.id,
-    label: adapter.label,
-    totalSymbols: 0,
-    dueSymbols: 0,
-    updated: 0,
-    failed: 0,
-    activeBatch: 0,
-    state: "idle",
-    lastMessage: "Waiting",
-  };
-}
-
-async function settleWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<R>,
-) {
-  const results: PromiseSettledResult<R>[] = [];
-
-  for (let index = 0; index < items.length; index += concurrency) {
-    const chunk = items.slice(index, index + concurrency);
-    results.push(...await Promise.allSettled(chunk.map(worker)));
-  }
-
-  return results;
-}
-
-function getSmartRefreshSymbols(symbols: SymbolDescriptor[], cursor: number) {
-  if (symbols.length === 0) {
-    return { symbols: [] as SymbolDescriptor[], nextCursor: 0 };
-  }
-
-  const windowSize = Math.max(1, Math.ceil(symbols.length / SMART_REFRESH_DIVISOR));
-  const selected: SymbolDescriptor[] = [];
-
-  for (let offset = 0; offset < windowSize; offset += 1) {
-    selected.push(symbols[(cursor + offset) % symbols.length]);
-  }
-
-  return {
-    symbols: selected,
-    nextCursor: (cursor + windowSize) % symbols.length,
-  };
-}
-
 export function OhlcvMonitor() {
-  const isRunning = true;
-  const [settings, setSettings] = useState<MonitorSettings>(defaultMonitorSettings);
-  const [statuses, setStatuses] = useState<Record<string, ExchangeStatus>>({});
-  const [exchangeSymbols, setExchangeSymbols] = useState<Record<string, SymbolDescriptor[]>>({});
-  const [recordsById, setRecordsById] = useState<Record<string, OhlcvMonitorRecord>>({});
+  const {
+    settings,
+    statuses,
+    exchangeSymbols,
+    recordsById,
+  } = useMonitorWorkerSnapshot();
   const [query, setQuery] = useState("");
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(FAVORITES_SOURCE_ID);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(() => new Set());
-  const stopRef = useRef(false);
-  const runTokenRef = useRef(0);
-  const rollingCursorRef = useRef(new Map<string, number>());
-  const lastExpireScanRef = useRef(new Map<string, number>());
-
-  const updateStatus = useCallback((datasourceId: string, patch: Partial<ExchangeStatus>) => {
-    setStatuses((current) => ({
-      ...current,
-      [datasourceId]: {
-        ...current[datasourceId],
-        ...patch,
-      },
-    }));
-  }, []);
-
-  const loadSettings = useCallback(async () => {
-    const loadedSettings = await loadMonitorSettings();
-    setSettings(loadedSettings);
-  }, []);
-
-  const fetchSymbol = useCallback(
-    async (adapter: DatasourceAdapter, symbol: SymbolDescriptor) => {
-      const symbolInfo = await adapter.resolveSymbol(symbol.id);
-      const to = nowUnix();
-      const from = to - resolutionToSeconds(settings.resolution) * LOOKBACK_BARS;
-      const response = await adapter.getBars(symbolInfo, settings.resolution, {
-        from,
-        to,
-        firstDataRequest: false,
-      });
-
-      const record: OhlcvMonitorRecord = {
-        id: `${symbol.id}:${settings.resolution}`,
-        datasourceId: symbol.datasourceId,
-        exchange: symbol.exchange,
-        marketType: symbol.marketType,
-        symbol: symbol.symbol,
-        displayName: symbol.displayName,
-        lastUpdated: nowUnix(),
-        bars: response.bars,
-      };
-      return record;
-    },
-    [settings.resolution],
-  );
-
-  const runExchangeWorker = useCallback(
-    async (adapter: DatasourceAdapter, runToken: number) => {
-      const shouldStop = () => stopRef.current || runTokenRef.current !== runToken;
-
-      updateStatus(adapter.id, {
-        state: "initializing",
-        lastMessage: "Loading symbols",
-      });
-
-      try {
-        await adapter.initialize();
-        const symbols = adapter.getSymbols();
-        setExchangeSymbols((current) => ({
-          ...current,
-          [adapter.id]: symbols,
-        }));
-        updateStatus(adapter.id, {
-          totalSymbols: symbols.length,
-          state: "running",
-          lastMessage: "Ready",
-        });
-
-        const cached = await readRecordsByDatasource(adapter.id);
-        const currentResolutionRecords = cached.filter((record) => record.id.endsWith(`:${settings.resolution}`));
-        const localRecordsById = new Map(currentResolutionRecords.map((record) => [record.id, record]));
-        setRecordsById((current) => ({
-          ...current,
-          ...Object.fromEntries(currentResolutionRecords.map((record) => [record.id, record])),
-        }));
-
-        while (!shouldStop()) {
-          const currentTime = nowUnix();
-          const lastExpireScan = lastExpireScanRef.current.get(adapter.id) ?? 0;
-          const shouldScanExpired =
-            lastExpireScan === 0 || currentTime - lastExpireScan >= EXPIRE_SCAN_INTERVAL_SECONDS;
-          let targetSymbols: SymbolDescriptor[] = [];
-          let expiredCount = 0;
-          let refreshMode: "expired" | "smart" = "smart";
-
-          if (shouldScanExpired) {
-            const dueSymbols = symbols.filter((symbol) => {
-              const recordId = `${symbol.id}:${settings.resolution}`;
-              const localRecord = localRecordsById.get(recordId);
-              return !localRecord || currentTime - localRecord.lastUpdated > OUTDATED_AFTER_SECONDS;
-            });
-            lastExpireScanRef.current.set(adapter.id, currentTime);
-            targetSymbols = dueSymbols;
-            expiredCount = dueSymbols.length;
-            refreshMode = dueSymbols.length > 0 ? "expired" : "smart";
-          }
-
-          if (targetSymbols.length === 0) {
-            const cursor = rollingCursorRef.current.get(adapter.id) ?? 0;
-            const smartWindow = getSmartRefreshSymbols(symbols, cursor);
-            targetSymbols = smartWindow.symbols;
-            rollingCursorRef.current.set(adapter.id, smartWindow.nextCursor);
-            refreshMode = "smart";
-          }
-
-          updateStatus(adapter.id, {
-            dueSymbols: targetSymbols.length,
-            state: targetSymbols.length > 0 ? "running" : "waiting",
-            activeBatch: 0,
-            lastMessage:
-              refreshMode === "expired"
-                ? `Fetching ${expiredCount} expired symbols`
-                : `Smart refresh ${targetSymbols.length} symbols`,
-          });
-
-          if (targetSymbols.length === 0) {
-            await sleep(SMART_REFRESH_INTERVAL_SECONDS * 1000, shouldStop);
-            continue;
-          }
-
-          for (let index = 0; index < targetSymbols.length && !shouldStop(); index += settings.batchSize) {
-            const batch = targetSymbols.slice(index, index + settings.batchSize);
-            updateStatus(adapter.id, {
-              activeBatch: Math.floor(index / settings.batchSize) + 1,
-              lastMessage: `${refreshMode === "expired" ? "Expire" : "Smart"} batch ${
-                Math.floor(index / settings.batchSize) + 1
-              }: ${batch[0]?.symbol ?? ""}`,
-            });
-
-            const results = await settleWithConcurrency(batch, 2, (symbol) => fetchSymbol(adapter, symbol));
-            const fulfilled = results
-              .filter((result): result is PromiseFulfilledResult<OhlcvMonitorRecord> => result.status === "fulfilled")
-              .map((result) => result.value)
-              .filter((record) => record.bars.length > 0);
-            const rejectedCount = results.length - fulfilled.length;
-
-            if (fulfilled.length > 0) {
-              await writeOhlcvRecords(fulfilled);
-              fulfilled.forEach((record) => {
-                localRecordsById.set(record.id, record);
-              });
-              setRecordsById((current) => ({
-                ...current,
-                ...Object.fromEntries(fulfilled.map((record) => [record.id, record])),
-              }));
-            }
-
-            setStatuses((current) => ({
-              ...current,
-              [adapter.id]: {
-                ...current[adapter.id],
-                updated: (current[adapter.id]?.updated ?? 0) + fulfilled.length,
-                failed: (current[adapter.id]?.failed ?? 0) + rejectedCount,
-                dueSymbols: Math.max(targetSymbols.length - index - batch.length, 0),
-              },
-            }));
-
-            await sleep(BATCH_DELAY_MS, shouldStop);
-          }
-
-          await sleep(SMART_REFRESH_INTERVAL_SECONDS * 1000, shouldStop);
-        }
-
-        updateStatus(adapter.id, {
-          state: "stopped",
-          lastMessage: "Stopped",
-        });
-      } catch (error) {
-        updateStatus(adapter.id, {
-          state: "error",
-          lastMessage: error instanceof Error ? error.message : "Worker failed",
-        });
-      }
-    },
-    [fetchSymbol, settings.batchSize, settings.resolution, updateStatus],
-  );
-
-  useEffect(() => {
-    void loadSettings();
-  }, [loadSettings]);
 
   useEffect(() => {
     try {
@@ -349,38 +54,6 @@ export function OhlcvMonitor() {
       window.removeEventListener("mint-monitor-search", handleSearch);
     };
   }, []);
-
-  useEffect(() => {
-    const runToken = runTokenRef.current + 1;
-    runTokenRef.current = runToken;
-    stopRef.current = !isRunning;
-    if (!isRunning) {
-      setStatuses((current) =>
-        Object.fromEntries(
-          Object.entries(current).map(([datasourceId, status]) => [
-            datasourceId,
-            { ...status, state: "stopped", lastMessage: "Stopped" },
-          ]),
-        ),
-      );
-      return;
-    }
-
-    stopRef.current = false;
-    setRecordsById({});
-    rollingCursorRef.current.clear();
-    lastExpireScanRef.current.clear();
-    const registry = getDatasourceRegistry();
-    const adapters = registry.getAdapters();
-    setStatuses(Object.fromEntries(adapters.map((adapter) => [adapter.id, toStatus(adapter)])));
-    adapters.forEach((adapter) => {
-      void runExchangeWorker(adapter, runToken);
-    });
-
-    return () => {
-      stopRef.current = true;
-    };
-  }, [isRunning, settings, runExchangeWorker]);
 
   const statusList = useMemo(() => Object.values(statuses), [statuses]);
   const allSymbols = useMemo(

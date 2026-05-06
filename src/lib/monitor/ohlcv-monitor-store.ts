@@ -51,7 +51,7 @@ async function getLocalDb() {
 }
 
 async function readLocalRecordsByDatasource(datasourceId: string): Promise<OhlcvMonitorRecord[]> {
-  if (typeof window === "undefined") return [];
+  if (typeof indexedDB === "undefined") return [];
 
   try {
     const db = await getLocalDb();
@@ -80,7 +80,7 @@ async function readLocalRecordsByDatasource(datasourceId: string): Promise<Ohlcv
 }
 
 async function writeLocalOhlcvRecords(records: OhlcvMonitorRecord[]) {
-  if (typeof window === "undefined" || records.length === 0) return;
+  if (typeof indexedDB === "undefined" || records.length === 0) return;
 
   try {
     const db = await getLocalDb();
@@ -94,7 +94,7 @@ async function writeLocalOhlcvRecords(records: OhlcvMonitorRecord[]) {
 }
 
 async function deleteLocalOhlcvRecords(ids: string[]) {
-  if (typeof window === "undefined" || ids.length === 0) return;
+  if (typeof indexedDB === "undefined" || ids.length === 0) return;
 
   try {
     const db = await getLocalDb();
@@ -126,7 +126,7 @@ export async function readSymbolUpdatesByDatasource(datasourceId: string, resolu
 }
 
 export async function readAllSymbolUpdates() {
-  if (typeof window === "undefined") return [];
+  if (typeof indexedDB === "undefined") return [];
 
   try {
     const db = await getLocalDb();

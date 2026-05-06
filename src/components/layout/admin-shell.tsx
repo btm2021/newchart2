@@ -1,5 +1,6 @@
 "use client";
 
+import { MonitorWorkerBootstrap } from "@/components/monitor/monitor-worker-bootstrap";
 import { useSidebar } from "@/context/SidebarContext";
 import AppSidebar from "@/layout/AppSidebar";
 import Backdrop from "@/layout/Backdrop";
@@ -7,18 +8,19 @@ import { usePathname } from "next/navigation";
 import React from "react";
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
-  const { isExpanded, isHovered, isMobileOpen } = useSidebar();
+  const { isExpanded, isMobileOpen } = useSidebar();
   const pathname = usePathname();
   const isChartPage = pathname === "/chart";
 
   const mainContentMargin = isMobileOpen
     ? "ml-0"
-    : isExpanded || isHovered
+    : isExpanded
       ? "lg:ml-[240px]"
       : "lg:ml-[64px]";
 
   return (
     <div className="min-h-screen xl:flex">
+      <MonitorWorkerBootstrap />
       <AppSidebar />
       <Backdrop />
       <div

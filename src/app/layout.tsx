@@ -9,6 +9,23 @@ const outfit = Outfit({
   subsets: ["latin"],
 });
 
+const themeInitScript = `
+  (function () {
+    try {
+      var theme = localStorage.getItem("theme") || "dark";
+      if (theme === "dark") {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+      document.documentElement.style.colorScheme = theme;
+    } catch (_) {
+      document.documentElement.classList.add("dark");
+      document.documentElement.style.colorScheme = "dark";
+    }
+  })();
+`;
+
 export const metadata: Metadata = {
   title: {
     default: "Mint",
@@ -23,7 +40,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className={`${outfit.className} dark:bg-gray-900`}>
         <ThemeProvider>
           <SidebarProvider>{children}</SidebarProvider>

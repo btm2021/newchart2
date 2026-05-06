@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     });
 
     const response = NextResponse.json({ user });
-    response.cookies.set(AUTH_COOKIE_NAME, encodeURIComponent(JSON.stringify(user)), {
+    response.cookies.set(AUTH_COOKIE_NAME, JSON.stringify(user), {
       expires: FOREVER_COOKIE_EXPIRY,
       path: "/",
       sameSite: "lax",

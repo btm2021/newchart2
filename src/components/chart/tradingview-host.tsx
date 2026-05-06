@@ -424,12 +424,6 @@ function TradingViewHostInner({ symbol, interval, chartType, keepScreenAwake, co
 
   return (
     <>
-      {loadingState === "loading" ? (
-        <div className="chart-loading">
-          <div className="chart-spinner" />
-          <div className="muted">Loading TradingView workspace…</div>
-        </div>
-      ) : null}
       {loadingState === "error" ? (
         <div className="chart-error">
           <strong>Chart bootstrap failed</strong>

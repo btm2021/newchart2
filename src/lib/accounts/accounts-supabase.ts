@@ -172,10 +172,10 @@ export async function writeAccountChartSettings(accountId: string, settings: Rec
     })
     .eq("id", accountId)
     .select("chart_settings")
-    .single();
+    .maybeSingle();
 
   if (error) throw new Error(error.message);
-  return data?.chart_settings as Record<string, unknown>;
+  return (data?.chart_settings ?? settings) as Record<string, unknown>;
 }
 
 export async function readAccountAppSettings(accountId: string): Promise<AppSettings> {
