@@ -71,13 +71,13 @@ export function MonitorSettingsForm() {
           <input
             type="number"
             min={1}
-            max={30}
+            max={200}
             value={settings.batchSize}
             disabled={state === "loading" || state === "saving"}
             onChange={(event) =>
               setSettings((current) => ({
                 ...current,
-                batchSize: Math.min(30, Math.max(1, Number(event.target.value) || 1)),
+                batchSize: Math.min(200, Math.max(1, Number(event.target.value) || 1)),
               }))
             }
             className="mt-2 h-11 w-full rounded-lg border border-gray-200 bg-transparent px-3 text-sm text-gray-800 dark:border-gray-700 dark:text-white"
@@ -104,6 +104,7 @@ export function MonitorSettingsForm() {
             ))}
           </select>
         </label>
+
       </div>
 
       <div className="mt-5 flex items-center gap-3">

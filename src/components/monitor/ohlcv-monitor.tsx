@@ -1,13 +1,19 @@
 "use client";
 
 import { MiniLineChart } from "@/components/monitor/mini-line-chart";
-import { loadFavoriteSymbolIds, saveFavoriteSymbolIds } from "@/lib/accounts/favorite-symbols-client";
+import {
+  isInvalidFavoriteAccountSession,
+  loadFavoriteSymbolIds,
+  saveFavoriteSymbolIds,
+} from "@/lib/accounts/favorite-symbols-client";
+import { clearBrowserSession } from "@/lib/auth/browser-auth";
 import type { SymbolDescriptor } from "@/lib/datasources/types";
 import type { ExchangeStatus } from "@/lib/monitor/monitor-engine";
 import type { OhlcvMonitorRecord } from "@/lib/monitor/ohlcv-monitor-store";
 import { useMonitorWorkerSnapshot } from "@/lib/monitor/monitor-worker-client";
 import type { Bar, ResolutionString } from "@/lib/types/charting";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const FAVORITES_SOURCE_ID = "FAVORITES";
@@ -22,6 +28,7 @@ function getChangePercent(bars: Bar[]) {
 }
 
 export function OhlcvMonitor() {
+  const router = useRouter();
   const {
     settings,
     statuses,
@@ -45,6 +52,13 @@ export function OhlcvMonitor() {
       })
       .catch((error) => {
         if (mounted) {
+          if (isInvalidFavoriteAccountSession(error)) {
+            clearBrowserSession();
+            router.replace("/login?next=/monitor");
+            router.refresh();
+            return;
+          }
+
           setFavoriteIds(new Set());
           setFavoriteError(error instanceof Error ? error.message : "Could not load favorites.");
         }
@@ -53,7 +67,7 @@ export function OhlcvMonitor() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const handleSearch = (event: Event) => {
@@ -101,6 +115,13 @@ export function OhlcvMonitor() {
     setFavoriteIds(next);
     setFavoriteError("");
     void saveFavoriteSymbolIds([...next]).catch((error) => {
+      if (isInvalidFavoriteAccountSession(error)) {
+        clearBrowserSession();
+        router.replace("/login?next=/monitor");
+        router.refresh();
+        return;
+      }
+
       setFavoriteError(error instanceof Error ? error.message : "Could not save favorites.");
       setFavoriteIds(previous);
     });

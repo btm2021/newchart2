@@ -1,6 +1,7 @@
 "use client";
 
-import { MonitorWorkerBootstrap } from "@/components/monitor/monitor-worker-bootstrap";
+import { AppLogCapture } from "@/components/logs/app-log-capture";
+import { AppLogPanel } from "@/components/logs/app-log-panel";
 import { useSidebar } from "@/context/SidebarContext";
 import AppSidebar from "@/layout/AppSidebar";
 import Backdrop from "@/layout/Backdrop";
@@ -17,10 +18,15 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     : isExpanded
       ? "lg:ml-[240px]"
       : "lg:ml-[64px]";
+  const logPanelOffset = isMobileOpen
+    ? "left-0"
+    : isExpanded
+      ? "left-0 lg:left-[240px]"
+      : "left-0 lg:left-[64px]";
 
   return (
-    <div className="min-h-screen xl:flex">
-      <MonitorWorkerBootstrap />
+    <div className="min-h-screen pb-10 xl:flex">
+      <AppLogCapture />
       <AppSidebar />
       <Backdrop />
       <div
@@ -36,6 +42,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </div>
+      <AppLogPanel offsetClassName={logPanelOffset} />
     </div>
   );
 }

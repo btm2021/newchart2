@@ -6,8 +6,12 @@ import {
   type MonitorSettings,
 } from "@/lib/monitor/monitor-settings";
 import {
+  getRecordLastUpdatedUnix,
   readRecordsByDatasource,
+  readExpireScanTimestamp,
+  normalizeUnixTimestamp,
   writeOhlcvRecords,
+  writeExpireScanTimestamp,
   type OhlcvMonitorRecord,
 } from "@/lib/monitor/ohlcv-monitor-store";
 import type { ResolutionString } from "@/lib/types/charting";
@@ -38,10 +42,7 @@ type MonitorEngineCallbacks = {
 
 const BATCH_DELAY_MS = 3_000;
 const LOOKBACK_BARS = 1500;
-const EXPIRE_SCAN_INTERVAL_SECONDS = 15 * 60;
-const OUTDATED_AFTER_SECONDS = 15 * 60;
-const SMART_REFRESH_INTERVAL_SECONDS = 60;
-const SMART_REFRESH_DIVISOR = 30;
+const EXPIRE_CHECK_MINUTES = 240;
 
 function nowUnix() {
   return Math.floor(Date.now() / 1000);
@@ -115,22 +116,11 @@ async function settleWithConcurrency<T, R>(
   return results;
 }
 
-function getSmartRefreshSymbols(symbols: SymbolDescriptor[], cursor: number) {
-  if (symbols.length === 0) {
-    return { symbols: [] as SymbolDescriptor[], nextCursor: 0 };
-  }
-
-  const windowSize = Math.max(1, Math.ceil(symbols.length / SMART_REFRESH_DIVISOR));
-  const selected: SymbolDescriptor[] = [];
-
-  for (let offset = 0; offset < windowSize; offset += 1) {
-    selected.push(symbols[(cursor + offset) % symbols.length]);
-  }
-
-  return {
-    symbols: selected,
-    nextCursor: (cursor + windowSize) % symbols.length,
-  };
+function isRecordExpired(record: OhlcvMonitorRecord | undefined, currentTime: number, expireSeconds: number) {
+  if (!record || record.bars.length === 0) return true;
+  const lastBarTime = getRecordLastUpdatedUnix(record);
+  if (!lastBarTime) return true;
+  return currentTime - lastBarTime > expireSeconds;
 }
 
 export class OhlcvMonitorEngine {
@@ -140,7 +130,6 @@ export class OhlcvMonitorEngine {
   private stopRequested = false;
   private runToken = 0;
   private started = false;
-  private readonly rollingCursor = new Map<string, number>();
   private readonly lastExpireScan = new Map<string, number>();
 
   constructor(private readonly callbacks: MonitorEngineCallbacks = {}) {}
@@ -210,6 +199,7 @@ export class OhlcvMonitorEngine {
       to,
       firstDataRequest: false,
     });
+    const lastBarTime = normalizeUnixTimestamp(response.bars.at(-1)?.time) || nowUnix();
 
     const record: OhlcvMonitorRecord = {
       id: `${symbol.id}:${this.settings.resolution}`,
@@ -218,7 +208,7 @@ export class OhlcvMonitorEngine {
       marketType: symbol.marketType,
       symbol: symbol.symbol,
       displayName: symbol.displayName,
-      lastUpdated: nowUnix(),
+      lastUpdated: lastBarTime,
       bars: response.bars,
     };
     return record;
@@ -246,48 +236,47 @@ export class OhlcvMonitorEngine {
       const currentResolutionRecords = cached.filter((record) => record.id.endsWith(`:${this.settings.resolution}`));
       const localRecordsById = new Map(currentResolutionRecords.map((record) => [record.id, record]));
       this.callbacks.onRecords?.(Object.fromEntries(currentResolutionRecords.map((record) => [record.id, record])));
+      const expireSeconds = EXPIRE_CHECK_MINUTES * 60;
+      const expireScanId = `${adapter.id}:${this.settings.resolution}`;
+      const persistedLastExpireScan = await readExpireScanTimestamp(expireScanId);
+      if (persistedLastExpireScan > 0) {
+        this.lastExpireScan.set(expireScanId, persistedLastExpireScan);
+      }
 
       while (!shouldStop()) {
         const currentTime = nowUnix();
-        const lastExpireScan = this.lastExpireScan.get(adapter.id) ?? 0;
+        const lastExpireScan = this.lastExpireScan.get(expireScanId) ?? 0;
+        const secondsUntilNextScan = lastExpireScan > 0
+          ? Math.max(expireSeconds - (currentTime - lastExpireScan), 0)
+          : 0;
         const shouldScanExpired =
-          lastExpireScan === 0 || currentTime - lastExpireScan >= EXPIRE_SCAN_INTERVAL_SECONDS;
+          lastExpireScan === 0 || currentTime - lastExpireScan >= expireSeconds;
         let targetSymbols: SymbolDescriptor[] = [];
         let expiredCount = 0;
-        let refreshMode: "expired" | "smart" = "smart";
 
         if (shouldScanExpired) {
           const dueSymbols = symbols.filter((symbol) => {
             const recordId = `${symbol.id}:${this.settings.resolution}`;
             const localRecord = localRecordsById.get(recordId);
-            return !localRecord || currentTime - localRecord.lastUpdated > OUTDATED_AFTER_SECONDS;
+            return isRecordExpired(localRecord, currentTime, expireSeconds);
           });
-          this.lastExpireScan.set(adapter.id, currentTime);
+          this.lastExpireScan.set(expireScanId, currentTime);
+          await writeExpireScanTimestamp(expireScanId, currentTime);
           targetSymbols = dueSymbols;
           expiredCount = dueSymbols.length;
-          refreshMode = dueSymbols.length > 0 ? "expired" : "smart";
-        }
-
-        if (targetSymbols.length === 0) {
-          const cursor = this.rollingCursor.get(adapter.id) ?? 0;
-          const smartWindow = getSmartRefreshSymbols(symbols, cursor);
-          targetSymbols = smartWindow.symbols;
-          this.rollingCursor.set(adapter.id, smartWindow.nextCursor);
-          refreshMode = "smart";
         }
 
         this.updateStatus(adapter.id, {
           dueSymbols: targetSymbols.length,
           state: targetSymbols.length > 0 ? "running" : "waiting",
           activeBatch: 0,
-          lastMessage:
-            refreshMode === "expired"
-              ? `Fetching ${expiredCount} expired symbols`
-              : `Smart refresh ${targetSymbols.length} symbols`,
+          lastMessage: targetSymbols.length > 0
+            ? `Fetching ${expiredCount} expired symbols`
+            : `Next expire check in ${Math.ceil(secondsUntilNextScan / 60) || EXPIRE_CHECK_MINUTES}m`,
         });
 
         if (targetSymbols.length === 0) {
-          await sleep(SMART_REFRESH_INTERVAL_SECONDS * 1000, shouldStop);
+          await sleep((secondsUntilNextScan || expireSeconds) * 1000, shouldStop);
           continue;
         }
 
@@ -295,7 +284,7 @@ export class OhlcvMonitorEngine {
           const batch = targetSymbols.slice(index, index + this.settings.batchSize);
           this.updateStatus(adapter.id, {
             activeBatch: Math.floor(index / this.settings.batchSize) + 1,
-            lastMessage: `${refreshMode === "expired" ? "Expire" : "Smart"} batch ${
+            lastMessage: `Expire batch ${
               Math.floor(index / this.settings.batchSize) + 1
             }: ${batch[0]?.symbol ?? ""}`,
           });
@@ -325,7 +314,7 @@ export class OhlcvMonitorEngine {
           await sleep(BATCH_DELAY_MS, shouldStop);
         }
 
-        await sleep(SMART_REFRESH_INTERVAL_SECONDS * 1000, shouldStop);
+        await sleep(expireSeconds * 1000, shouldStop);
       }
 
       this.updateStatus(adapter.id, {

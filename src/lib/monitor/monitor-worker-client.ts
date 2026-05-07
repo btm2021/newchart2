@@ -7,6 +7,7 @@ import type {
 } from "@/lib/monitor/monitor-engine";
 import { defaultMonitorSettings, type MonitorSettings } from "@/lib/monitor/monitor-settings";
 import type { OhlcvMonitorRecord } from "@/lib/monitor/ohlcv-monitor-store";
+import { logAppEvent } from "@/lib/logs/app-log-store";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 export type MonitorWorkerSnapshot = {
@@ -62,12 +63,17 @@ function handleWorkerEvent(event: MessageEvent<MonitorWorkerEvent>) {
   switch (payload.type) {
     case "settings":
       updateSnapshot({ settings: payload.settings, error: null });
+      logAppEvent("MONITOR", `Settings loaded: ${payload.settings.resolution}, fixed expire check 240m.`);
       return;
     case "statuses":
       updateSnapshot({ statuses: payload.statuses, error: null });
+      Object.values(payload.statuses).forEach((status) => {
+        logAppEvent("MONITOR", `${status.label}: ${status.lastMessage}`);
+      });
       return;
     case "symbols":
       updateSnapshot({ exchangeSymbols: payload.exchangeSymbols, error: null });
+      logAppEvent("MONITOR", `Symbols loaded for ${Object.keys(payload.exchangeSymbols).length} sources.`);
       return;
     case "records":
       if (listeners.size === 0) return;
@@ -78,6 +84,7 @@ function handleWorkerEvent(event: MessageEvent<MonitorWorkerEvent>) {
         },
         error: null,
       });
+      logAppEvent("OHLCV", `Cache updated: ${Object.keys(payload.records).length} records.`, "success");
       return;
     case "snapshot":
       updateSnapshot({
@@ -87,9 +94,11 @@ function handleWorkerEvent(event: MessageEvent<MonitorWorkerEvent>) {
         recordsById: payload.records,
         error: null,
       });
+      logAppEvent("MONITOR", `Snapshot synced: ${Object.keys(payload.records).length} cached records.`);
       return;
     case "error":
       updateSnapshot({ error: payload.message });
+      logAppEvent("MONITOR", payload.message, "error");
       return;
   }
 }
@@ -101,19 +110,23 @@ export function startMonitorWorker() {
     worker = new Worker(new URL("../../workers/monitor-worker.ts", import.meta.url), {
       type: "module",
     });
+    logAppEvent("MONITOR", "Worker created.");
     worker.addEventListener("message", handleWorkerEvent);
     worker.addEventListener("error", (event) => {
       updateSnapshot({ error: event.message || "Monitor worker failed." });
+      logAppEvent("MONITOR", event.message || "Monitor worker failed.", "error");
     });
   }
 
   if (!snapshot.started) {
     updateSnapshot({ started: true });
     worker.postMessage({ type: "start" });
+    logAppEvent("MONITOR", "Worker started.", "success");
   }
 
   if (listeners.size > 0) {
     worker.postMessage({ type: "sync" });
+    logAppEvent("MONITOR", "Worker sync requested.");
   }
 }
 
@@ -121,6 +134,7 @@ export function stopMonitorWorker() {
   if (!worker) return;
   worker.postMessage({ type: "stop" });
   updateSnapshot({ started: false });
+  logAppEvent("MONITOR", "Worker stopped.", "warning");
 }
 
 export function subscribeMonitorWorker(listener: () => void) {
@@ -150,7 +164,6 @@ export function useMonitorWorkerSnapshot() {
 
   useEffect(() => {
     setMounted(true);
-    startMonitorWorker();
   }, []);
 
   return mounted ? externalSnapshot : snapshot;

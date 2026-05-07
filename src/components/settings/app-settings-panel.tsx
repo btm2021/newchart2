@@ -177,12 +177,9 @@ export function AppSettingsPanel() {
 
       <div className="grid grid-cols-12 gap-5">
         <section className="col-span-12 rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-white/[0.03] xl:col-span-6">
-          <SectionTitle title="Monitor Engine" subtitle="Controls smart request cadence and batch size." />
+          <SectionTitle title="Monitor Engine" subtitle="Checks expired OHLCV cache on a fixed interval." />
           <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <NumberField label="Batch size" value={settings.monitorBatchSize} min={1} max={200} onChange={(value) => updateSetting("monitorBatchSize", value)} />
-            <NumberField label="Smart refresh seconds" value={settings.monitorRefreshSeconds} min={15} max={900} onChange={(value) => updateSetting("monitorRefreshSeconds", value)} />
-            <NumberField label="Expire minutes" value={settings.monitorExpireMinutes} min={1} max={240} onChange={(value) => updateSetting("monitorExpireMinutes", value)} />
-            <NumberField label="Smart divisor" value={settings.smartRefreshDivisor} min={1} max={200} onChange={(value) => updateSetting("smartRefreshDivisor", value)} />
           </div>
         </section>
 
