@@ -1,6 +1,7 @@
 "use client";
 
 import { MiniLineChart } from "@/components/monitor/mini-line-chart";
+import { loadFavoriteSymbolIds, saveFavoriteSymbolIds } from "@/lib/accounts/favorite-symbols-client";
 import type { SymbolDescriptor } from "@/lib/datasources/types";
 import type { ExchangeStatus } from "@/lib/monitor/monitor-engine";
 import type { OhlcvMonitorRecord } from "@/lib/monitor/ohlcv-monitor-store";
@@ -10,7 +11,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const FAVORITES_SOURCE_ID = "FAVORITES";
-const FAVORITES_STORAGE_KEY = "mint-monitor-favorites-v1";
 const VIRTUAL_CARD_GAP = 16;
 const MONITOR_CARD_HEIGHT = 220;
 
@@ -31,16 +31,28 @@ export function OhlcvMonitor() {
   const [query, setQuery] = useState("");
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(FAVORITES_SOURCE_ID);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(() => new Set());
+  const [favoriteError, setFavoriteError] = useState("");
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
-      if (raw) {
-        setFavoriteIds(new Set(JSON.parse(raw) as string[]));
-      }
-    } catch {
-      setFavoriteIds(new Set());
-    }
+    let mounted = true;
+
+    void loadFavoriteSymbolIds()
+      .then((ids) => {
+        if (mounted) {
+          setFavoriteIds(new Set(ids));
+          setFavoriteError("");
+        }
+      })
+      .catch((error) => {
+        if (mounted) {
+          setFavoriteIds(new Set());
+          setFavoriteError(error instanceof Error ? error.message : "Could not load favorites.");
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -76,6 +88,24 @@ export function OhlcvMonitor() {
     if (!selectedSourceId) return [];
     return exchangeSymbols[selectedSourceId] ?? [];
   }, [allSymbols, exchangeSymbols, favoriteIds, selectedSourceId]);
+
+  function toggleFavorite(symbolId: string) {
+    const previous = favoriteIds;
+    const next = new Set(previous);
+    if (next.has(symbolId)) {
+      next.delete(symbolId);
+    } else {
+      next.add(symbolId);
+    }
+
+    setFavoriteIds(next);
+    setFavoriteError("");
+    void saveFavoriteSymbolIds([...next]).catch((error) => {
+      setFavoriteError(error instanceof Error ? error.message : "Could not save favorites.");
+      setFavoriteIds(previous);
+    });
+  }
+
   return (
     <div className="h-[calc(100dvh-32px)] min-h-[520px] md:h-[calc(100dvh-48px)]">
       <div className="grid h-full items-stretch gap-5 xl:grid-cols-[240px_minmax(0,1fr)]">
@@ -97,18 +127,8 @@ export function OhlcvMonitor() {
           resolution={settings.resolution}
           query={query}
           favoriteIds={favoriteIds}
-          onToggleFavorite={(symbolId) => {
-            setFavoriteIds((current) => {
-              const next = new Set(current);
-              if (next.has(symbolId)) {
-                next.delete(symbolId);
-              } else {
-                next.add(symbolId);
-              }
-              window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...next]));
-              return next;
-            });
-          }}
+          favoriteError={favoriteError}
+          onToggleFavorite={toggleFavorite}
         />
       </div>
     </div>
@@ -213,6 +233,7 @@ function SymbolCardGrid({
   resolution,
   query,
   favoriteIds,
+  favoriteError,
   onToggleFavorite,
 }: {
   title: string;
@@ -222,6 +243,7 @@ function SymbolCardGrid({
   resolution: ResolutionString;
   query: string;
   favoriteIds: Set<string>;
+  favoriteError: string;
   onToggleFavorite: (symbolId: string) => void;
 }) {
   const [scrollTop, setScrollTop] = useState(0);
@@ -283,6 +305,7 @@ function SymbolCardGrid({
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {filteredSymbols.length.toLocaleString()} of {symbols.length.toLocaleString()} symbols
             {status ? ` / ${status.state} / ${status.lastMessage}` : ""}
+            {favoriteError ? ` / ${favoriteError}` : ""}
           </p>
         </div>
         <span className="text-sm text-gray-500 dark:text-gray-400">

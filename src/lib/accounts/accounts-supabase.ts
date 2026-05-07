@@ -164,10 +164,16 @@ export async function readAccountChartSettings(accountId: string): Promise<Parti
 }
 
 export async function writeAccountChartSettings(accountId: string, settings: Record<string, unknown>) {
+  const current = await readAccountChartSettings(accountId);
+  const next = {
+    ...current,
+    ...settings,
+  };
+
   const { data, error } = await getSupabaseAdmin()
     .from("accounts")
     .update({
-      chart_settings: settings,
+      chart_settings: next,
       updated_at: new Date().toISOString(),
     })
     .eq("id", accountId)
@@ -175,7 +181,50 @@ export async function writeAccountChartSettings(accountId: string, settings: Rec
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  return (data?.chart_settings ?? settings) as Record<string, unknown>;
+  return (data?.chart_settings ?? next) as Record<string, unknown>;
+}
+
+export function normalizeFavoriteSymbolIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((item): item is string => typeof item === "string" && item.trim().length > 0))];
+}
+
+export async function readFavoriteSymbolIds(accountId: string): Promise<string[] | null> {
+  const account = await readAccount(accountId);
+  if (!account) return null;
+  const settings = typeof account.chart_settings === "object" && account.chart_settings !== null
+    ? account.chart_settings as Record<string, unknown>
+    : {};
+  return normalizeFavoriteSymbolIds(settings.favoriteSymbolIds);
+}
+
+export async function writeFavoriteSymbolIds(accountId: string, favoriteSymbolIds: string[]): Promise<string[] | null> {
+  const account = await readAccount(accountId);
+  if (!account) return null;
+
+  const current = typeof account.chart_settings === "object" && account.chart_settings !== null
+    ? account.chart_settings as Record<string, unknown>
+    : {};
+  const next = {
+    ...current,
+    favoriteSymbolIds: normalizeFavoriteSymbolIds(favoriteSymbolIds),
+  };
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("accounts")
+    .update({
+      chart_settings: next,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", accountId)
+    .select("chart_settings")
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  const settings = typeof data?.chart_settings === "object" && data.chart_settings !== null
+    ? data.chart_settings as Record<string, unknown>
+    : next;
+  return normalizeFavoriteSymbolIds(settings.favoriteSymbolIds);
 }
 
 export async function readAccountAppSettings(accountId: string): Promise<AppSettings> {

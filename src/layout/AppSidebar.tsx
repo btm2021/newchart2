@@ -14,6 +14,7 @@ import {
   HorizontaLDots,
   ListIcon,
   PieChartIcon,
+  ShootingStarIcon,
 } from "../icons/index";
 
 type NavItem = {
@@ -38,6 +39,11 @@ const navItems: NavItem[] = [
     icon: <ListIcon />,
     name: "Monitor",
     path: "/monitor",
+  },
+  {
+    icon: <ShootingStarIcon />,
+    name: "Favorite",
+    path: "/favorite",
   },
   {
     icon: <DollarLineIcon />,
