@@ -40,6 +40,8 @@ export async function PUT(request: NextRequest) {
     };
 
     const profile = await writeAccountProfile(accountId, payload.profile ?? {});
+    if (!profile) return errorResponse(new Error("Account not found."), 404);
+
     return NextResponse.json({ profile });
   } catch (error) {
     return errorResponse(error);

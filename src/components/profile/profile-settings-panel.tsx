@@ -1,7 +1,8 @@
 "use client";
 
-import { readBrowserSession, saveBrowserSession } from "@/lib/auth/browser-auth";
-import { useEffect, useState } from "react";
+import { clearBrowserSession, readBrowserSession, saveBrowserSession } from "@/lib/auth/browser-auth";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 
 type ExchangeId = "BINANCE" | "OKX" | "BYBIT";
 
@@ -50,12 +51,23 @@ const emptyProfile: AccountProfile = {
 };
 
 export function ProfileSettingsPanel() {
+  const router = useRouter();
   const [profile, setProfile] = useState<AccountProfile>(emptyProfile);
   const [password, setPassword] = useState("");
   const [draftKeys, setDraftKeys] = useState<Record<string, Record<string, string>>>({});
   const [maskedKeys, setMaskedKeys] = useState<Record<string, Record<string, string>>>({});
   const [status, setStatus] = useState<"loading" | "ready" | "saving" | "error">("loading");
   const [message, setMessage] = useState("");
+
+  const handleInvalidAccountSession = useCallback(() => {
+    clearBrowserSession();
+    router.replace("/login?next=/profile");
+    router.refresh();
+  }, [router]);
+
+  function isInvalidAccountSession(response: Response, error?: string) {
+    return response.status === 401 || (response.status === 404 && error === "Account not found.");
+  }
 
   useEffect(() => {
     async function loadProfile() {
@@ -69,6 +81,11 @@ export function ProfileSettingsPanel() {
 
         const profilePayload = await profileResponse.json() as ProfileResponse;
         if (!profileResponse.ok || !profilePayload.profile) {
+          if (isInvalidAccountSession(profileResponse, profilePayload.error)) {
+            handleInvalidAccountSession();
+            return;
+          }
+
           throw new Error(profilePayload.error || "Could not load profile.");
         }
 
@@ -86,7 +103,7 @@ export function ProfileSettingsPanel() {
     }
 
     void loadProfile();
-  }, []);
+  }, [handleInvalidAccountSession]);
 
   function updateProfile<K extends keyof AccountProfile>(key: K, value: AccountProfile[K]) {
     setProfile((current) => ({
@@ -135,6 +152,11 @@ export function ProfileSettingsPanel() {
       });
       const profilePayload = await profileResponse.json() as ProfileResponse;
       if (!profileResponse.ok || !profilePayload.profile) {
+        if (isInvalidAccountSession(profileResponse, profilePayload.error)) {
+          handleInvalidAccountSession();
+          return;
+        }
+
         throw new Error(profilePayload.error || "Could not save profile.");
       }
 
