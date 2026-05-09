@@ -27,6 +27,12 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const isPrefetch = request.headers.has("next-router-prefetch") ||
+    request.headers.get("purpose") === "prefetch";
+  if (isPrefetch) {
+    return NextResponse.next();
+  }
+
   const isPublicPath = PUBLIC_PATHS.has(pathname);
   const session = parseAuthCookieValue(request.cookies.get(AUTH_COOKIE_NAME)?.value);
   const isAuthenticated = Boolean(session?.accountId && session.username);

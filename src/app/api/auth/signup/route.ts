@@ -1,10 +1,8 @@
-import { AUTH_COOKIE_NAME } from "@/lib/auth/session-shared";
+import { AUTH_COOKIE_MAX_AGE_SECONDS, AUTH_COOKIE_NAME } from "@/lib/auth/session-shared";
 import { createAccount } from "@/lib/accounts/accounts-supabase";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-
-const FOREVER_COOKIE_EXPIRY = new Date("9999-12-31T23:59:59.000Z");
 
 function errorResponse(error: unknown, status = 500) {
   const message = error instanceof Error ? error.message : "Sign up request failed.";
@@ -37,9 +35,10 @@ export async function POST(request: NextRequest) {
 
     const response = NextResponse.json({ user });
     response.cookies.set(AUTH_COOKIE_NAME, JSON.stringify(user), {
-      expires: FOREVER_COOKIE_EXPIRY,
+      maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
       path: "/",
       sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
     });
     return response;
   } catch (error) {

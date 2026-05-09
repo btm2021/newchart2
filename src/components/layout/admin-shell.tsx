@@ -6,7 +6,7 @@ import { useSidebar } from "@/context/SidebarContext";
 import AppSidebar from "@/layout/AppSidebar";
 import Backdrop from "@/layout/Backdrop";
 import { usePathname } from "next/navigation";
-import React from "react";
+import React, { useEffect } from "react";
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const { isExpanded, isMobileOpen } = useSidebar();
@@ -23,6 +23,14 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     : isExpanded
       ? "left-0 lg:left-[240px]"
       : "left-0 lg:left-[64px]";
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    void navigator.serviceWorker.getRegistrations()
+      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+      .catch(() => undefined);
+  }, []);
 
   return (
     <div className="min-h-screen pb-10 xl:flex">

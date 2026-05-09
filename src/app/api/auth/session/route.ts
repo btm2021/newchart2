@@ -1,10 +1,8 @@
-import { AUTH_COOKIE_NAME } from "@/lib/auth/session-shared";
+import { AUTH_COOKIE_MAX_AGE_SECONDS, AUTH_COOKIE_NAME } from "@/lib/auth/session-shared";
 import { verifyAccountPassword } from "@/lib/accounts/accounts-supabase";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-
-const FOREVER_COOKIE_EXPIRY = new Date("9999-12-31T23:59:59.000Z");
 
 function errorResponse(error: unknown, status = 500) {
   const message = error instanceof Error ? error.message : "Authentication request failed.";
@@ -34,9 +32,10 @@ export async function POST(request: NextRequest) {
     };
     const response = NextResponse.json({ user });
     response.cookies.set(AUTH_COOKIE_NAME, JSON.stringify(user), {
-      expires: FOREVER_COOKIE_EXPIRY,
+      maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
       path: "/",
       sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
     });
     return response;
   } catch (error) {
@@ -47,9 +46,10 @@ export async function POST(request: NextRequest) {
 export async function DELETE() {
   const response = NextResponse.json({ ok: true });
   response.cookies.set(AUTH_COOKIE_NAME, "", {
-    expires: new Date(0),
+    maxAge: 0,
     path: "/",
     sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
   });
   return response;
 }

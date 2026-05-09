@@ -1,9 +1,13 @@
 "use client";
 
-import { AUTH_COOKIE_NAME, AUTH_STORAGE_KEY, normalizeUsername, type AuthUser } from "@/lib/auth/session-shared";
+import {
+  AUTH_COOKIE_MAX_AGE_SECONDS,
+  AUTH_COOKIE_NAME,
+  AUTH_STORAGE_KEY,
+  normalizeUsername,
+  type AuthUser,
+} from "@/lib/auth/session-shared";
 import { logAppEvent } from "@/lib/logs/app-log-store";
-
-const FOREVER_COOKIE_EXPIRY = "Fri, 31 Dec 9999 23:59:59 GMT";
 
 export async function signInWithBrowserSession(
   username: string,
@@ -65,8 +69,9 @@ export async function signUpWithBrowserSession(input: {
 
 export function saveBrowserSession(user: AuthUser) {
   const value = encodeURIComponent(JSON.stringify(user));
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
   window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
-  document.cookie = `${AUTH_COOKIE_NAME}=${value}; expires=${FOREVER_COOKIE_EXPIRY}; path=/; SameSite=Lax`;
+  document.cookie = `${AUTH_COOKIE_NAME}=${value}; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; path=/; SameSite=Lax${secure}`;
   logAppEvent("AUTH", `Session saved for ${user.username}.`);
 }
 
@@ -89,8 +94,9 @@ export function readBrowserSession(): AuthUser | null {
 }
 
 export function clearBrowserSession() {
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
   window.localStorage.removeItem(AUTH_STORAGE_KEY);
-  document.cookie = `${AUTH_COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
+  document.cookie = `${AUTH_COOKIE_NAME}=; Max-Age=0; path=/; SameSite=Lax${secure}`;
   void fetch("/api/auth/session", { method: "DELETE" }).catch(() => undefined);
   logAppEvent("AUTH", "Session cleared.", "warning");
 }
